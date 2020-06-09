@@ -10,5 +10,6 @@ if (NOT TARGET llama::llama)
 endif()
 add_executable(${PROJECT_NAME} reflection.cpp)
 target_link_libraries(${PROJECT_NAME} llama::llama)
+target_compile_options(llama-reflection PRIVATE -std=c++2a -freflection)
 
 install(FILES "${PROJECT_BINARY_DIR}/llama-reflection" DESTINATION "bin")
