@@ -3,6 +3,7 @@
 #include <iostream>
 #include <utility>
 #include <vector>
+#include <array>
 #include <llama/llama.hpp>
 #include "../common/demangle.hpp"
 
@@ -26,21 +27,49 @@ namespace domain {
         float z;
     };
 
-    struct Momentum {
-        float z;
-        float x;
-    };
+    // leave this for now since it generates duplicated tags
+    // struct Momentum {
+    //     float z;
+    //     float x;
+    // };
 
     struct Name {
         Pos pos;
-        Momentum mom;
+        // Momentum mom;
         int weight;
         bool options[4];
     }; 
 }
 
+// TODO: the following needs to be generated
+// namespace st {
+//    struct Pos {};
+//    struct X {};
+//    struct Y {};
+//    struct Z {};
+//    struct Momentum {};
+//    struct Weight {};
+//    struct Options {};
+
+//    using Name = llama::DS<
+//        llama::DE< st::Pos, llama::DS<
+//            llama::DE< st::X, float >,
+//            llama::DE< st::Y, float >,
+//            llama::DE< st::Z, float >
+//        > >,
+//        llama::DE< st::Momentum,llama::DS<
+//            llama::DE< st::Z, double >,
+//            llama::DE< st::X, double >
+//        > >,
+//        llama::DE< st::Weight, int >,
+//        llama::DE< st::Options, llama::DA< bool, 4 > >
+//    >;
+// }
+
 // llama extension
 namespace llama::reflect {
+    struct tag_source{};
+
     // TODO replace by std::vector once it's constexpr
     template <typename T, std::size_t Capacity = 100>
     struct vector {
@@ -64,7 +93,6 @@ namespace llama::reflect {
             size++;
         }
     };
-
 
     using namespace std::experimental;
 
@@ -90,7 +118,7 @@ namespace llama::reflect {
 
             meta::info arg;
             if (meta::is_class_type(type)) {
-                arg = structMember(member);
+                arg = structMember(type);
             } else if (meta::is_array_type(type)) {
                 arg = arrayMember(type);
             } else if (meta::is_fundamental_type(type)) {
@@ -100,15 +128,17 @@ namespace llama::reflect {
                 __compiler_error("");
             }
             
-            // inject the tag type
-            -> fragment namespace {
-                // struct unqualid(meta::name_of(%{member})) {}; // BUG? fails for now, inject a variable
-                int unqualid(meta::name_of(%{member}));
-            };
+            // inject the tag type as a renamed copy, as suggested by Wyatt Childers
+            meta::info tag = meta::definition_of(reflexpr(tag_source));
+            meta::set_new_name(tag, meta::name_of(member));
+            -> tag;
+            // -> fragment namespace {
+            //     // struct unqualid(meta::name_of(%{member})) {}; // BUG? fails for now
+            // };
 
             // FIXME: element should actually be a meta::info carring a type
             auto element = fragment namespace {
-                using T = llama::DE<typename(meta::name_of(%{member})), typename(%{arg})>;
+                using T = llama::DE<typename(meta::name_of(%{member})), typename(%{arg})>; // FIXME: arg is probably also wrong, since it is not a reflection of a type
             };
             elements.push_back(element);
         }
@@ -134,32 +164,13 @@ namespace st {
     }
 }
 
-// TODO: the following needs to be generated
-//namespace st {
-//    struct Pos {};
-//    struct X {};
-//    struct Y {};
-//    struct Z {};
-//    struct Momentum {};
-//    struct Weight {};
-//    struct Options {};
-//}
-//
-//using Name = llama::DS<
-//    llama::DE< st::Pos, llama::DS<
-//        llama::DE< st::X, float >,
-//        llama::DE< st::Y, float >,
-//        llama::DE< st::Z, float >
-//    > >,
-//    llama::DE< st::Momentum,llama::DS<
-//        llama::DE< st::Z, double >,
-//        llama::DE< st::X, double >
-//    > >,
-//    llama::DE< st::Weight, int >,
-//    llama::DE< st::Options, llama::DA< bool, 4 > >
-//>;
+// check for generated tags
+consteval {
+    using namespace std::experimental;
+    for (meta::info member : meta::member_range(reflexpr(st)))
+        __reflect_pretty_print(member);
+}
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     return 0;
 }
