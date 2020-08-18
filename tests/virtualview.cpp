@@ -71,6 +71,8 @@ TEST_CASE("fast virtual view")
     CHECK(virtualView({2, 3})(tag::Vel(), tag::Z()) == 1125);
 }
 
+// FIXME(bgruber): reenable when nvc++ can handle this code
+#ifndef __PGI
 TEST_CASE("virtual view")
 {
     using UserDomain = llama::UserDomain<2>;
@@ -124,3 +126,4 @@ TEST_CASE("virtual view")
         for(std::size_t y = 0; y < viewSize[1]; ++y)
             CHECK((view(x, y) == x * y * std::sqrt(x * y)));
 }
+#endif
