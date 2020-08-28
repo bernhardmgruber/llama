@@ -42,6 +42,13 @@ namespace llama::mapping::tree::functor
         }
 
         template<typename Tree, typename TreeCoord>
+        LLAMA_FN_HOST_ACC_INLINE auto
+        tcToResultCoord(const TreeCoord & tc, const Tree &) const -> TreeCoord
+        {
+            return tc;
+        }
+
+        template<typename Tree, typename TreeCoord>
         LLAMA_FN_HOST_ACC_INLINE auto resultCoordToBasicCoord(
             const TreeCoord & resultCoord,
             const Tree &) const -> TreeCoord
@@ -68,6 +75,13 @@ namespace llama::mapping::tree::functor
             const Tree & tree) const
         {
             return basicCoordToResultCoordImpl(basicCoord, tree);
+        }
+
+        template<typename Tree, typename TreeCoord>
+        LLAMA_FN_HOST_ACC_INLINE auto
+        tcToResultCoord(const TreeCoord & tc, const Tree &) const -> TreeCoord
+        {
+            return tc; // TODO
         }
 
         template<typename Tree, typename ResultCoord>
@@ -148,6 +162,24 @@ namespace llama::mapping::tree::functor
                 return getNode<typename TreeCoord::RestTuple>(
                     getTupleElement<TreeCoord::FirstElement::compiletime>(
                         node.childs));
+        }
+        template<typename TreeCoord, typename Tree>
+        LLAMA_FN_HOST_ACC_INLINE auto getNodeTC(const Tree & tree)
+        {
+            if constexpr(std::is_same_v<TreeCoord, Tuple<>>)
+                return tree;
+            else
+            {
+                if constexpr(std::is_same_v<
+                                 typename TreeCoord::FirstElement,
+                                 std::size_t>)
+                    return getNodeTC<typename TreeCoord::RestTuple>(
+                        getTupleElement<0>(tree.childs));
+                else
+                    return getNodeTC<typename TreeCoord::RestTuple>(
+                        getTupleElement<TreeCoord::FirstElement::value>(
+                            tree.childs));
+            }
         }
 
         template<
@@ -286,6 +318,13 @@ namespace llama::mapping::tree::functor
             const Tree & tree) const
         {
             return basicCoordToResultCoordImpl<TreeCoord>(basicCoord, tree);
+        }
+
+        template<typename Tree, typename TreeCoord2>
+        LLAMA_FN_HOST_ACC_INLINE auto
+        tcToResultCoord(const TreeCoord2 & tc, const Tree &) const -> TreeCoord2
+        {
+            return tc; // TODO
         }
 
         template<typename Tree, typename ResultCoord>

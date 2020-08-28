@@ -82,6 +82,17 @@ namespace llama::mapping::tree
             }
 
             template<typename TreeCoord>
+            LLAMA_FN_HOST_ACC_INLINE auto
+            tcToResultCoord(const TreeCoord & tc, const Tree & tree) const
+            {
+                if constexpr(sizeof...(Operations) >= 1)
+                    return next.tcToResultCoord(
+                        operation.tcToResultCoord(tc, tree), treeAfterOp);
+                else
+                    return tc;
+            }
+
+            template<typename TreeCoord>
             LLAMA_FN_HOST_ACC_INLINE auto resultCoordToBasicCoord(
                 const TreeCoord & resultCoord,
                 const Tree & tree) const
@@ -115,6 +126,14 @@ namespace llama::mapping::tree
                 Tree const & tree) const -> TreeCoord
             {
                 return basicCoord;
+            }
+
+            template<typename TreeCoord>
+            LLAMA_FN_HOST_ACC_INLINE auto
+            tcToResultCoord(TreeCoord const & tc, Tree const & tree) const
+                -> TreeCoord
+            {
+                return tc;
             }
 
             template<typename TreeCoord>
@@ -215,6 +234,45 @@ namespace llama::mapping::tree
             else
                 return sizeof(typename Tree::Type) * treeCoord.first.runtime;
         }
+
+        template<typename Tree, typename... Coords>
+        LLAMA_FN_HOST_ACC_INLINE auto
+        getTreeBlobByteTC(const Tree & tree, const Tuple<Coords...> & tc)
+            -> std::size_t
+        {
+            if constexpr(sizeof...(Coords) > 0)
+            {
+                std::size_t offset = 0;
+                if constexpr(std::is_same_v<decltype(tc.first), std::size_t>)
+                {
+                    // runtime index, currently for UD nodes
+                    static_assert(
+                        SizeOfTuple<std::decay_t<decltype(tree.childs)>> == 1);
+                    const auto & child = getTupleElementRef<0>(tree.childs);
+                    offset
+                        += getTreeBlobSize(child) * LLAMA_DEREFERENCE(tc.first);
+                    offset += getTreeBlobByteTC(child, tupleRest(tc));
+                }
+                else
+                {
+                    // compile time index, currently for DD nodes
+                    static_assert(std::is_same_v<
+                                  std::decay_t<decltype(tree.count)>,
+                                  boost::mp11::mp_size_t<1>>);
+                    constexpr auto childIndex = decltype(tc.first)::value;
+                    offset += internal::sumChildrenSmallerThan<childIndex>(
+                        tree,
+                        std::make_index_sequence<
+                            SizeOfTuple<typename Tree::ChildrenTuple>>{});
+                    offset += getTreeBlobByteTC(
+                        getTupleElementRef<childIndex>(tree.childs),
+                        tupleRest(tc));
+                }
+                return offset;
+            }
+            else
+                return 0;
+        }
     }
 
     /** Free describable mapping which can be used for creating a \ref View with
@@ -273,12 +331,21 @@ namespace llama::mapping::tree
         LLAMA_FN_HOST_ACC_INLINE auto getBlobNrAndOffset(UserDomain coord) const
             -> NrAndOffset
         {
-            auto const basicTreeCoord
-                = createTreeCoord<DatumCoord<DatumDomainCoord...>>(coord);
-            auto const resultTreeCoord = mergedFunctors.basicCoordToResultCoord(
-                basicTreeCoord, basicTree);
+            // auto const basicTreeCoord
+            //    = createTreeCoord<DatumCoord<DatumDomainCoord...>>(coord);
+            // auto const resultTreeCoord =
+            // mergedFunctors.basicCoordToResultCoord(
+            //    basicTreeCoord, basicTree);
+            // const auto offset
+            //    = internal::getTreeBlobByte(resultTree, resultTreeCoord);
+
+            auto const basicTC
+                = createTC<DatumCoord<DatumDomainCoord...>>(coord);
+            auto const resultTC
+                = mergedFunctors.tcToResultCoord(basicTC, basicTree);
             const auto offset
-                = internal::getTreeBlobByte(resultTree, resultTreeCoord);
+                = internal::getTreeBlobByteTC(resultTree, resultTC);
+
             return {0, offset};
         }
     };

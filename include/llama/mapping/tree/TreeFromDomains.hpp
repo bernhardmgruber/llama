@@ -41,7 +41,7 @@ namespace llama::mapping::tree
         using Identifier = T_Identifier;
         using Type = T_Type;
 
-        const CountType count = one<CountType>;
+        CountType count = one<CountType>;
     };
 
     template<
@@ -53,8 +53,8 @@ namespace llama::mapping::tree
         using Identifier = T_Identifier;
         using ChildrenTuple = T_ChildrenTuple;
 
-        const CountType count = one<CountType>;
-        const ChildrenTuple childs = {};
+        CountType count = one<CountType>;
+        ChildrenTuple childs = {};
     };
 
     template<std::size_t Compiletime = 0, typename RuntimeType = std::size_t>
@@ -103,22 +103,21 @@ namespace llama::mapping::tree
 
     namespace internal
     {
-        template<typename Tag, typename DatumDomain, typename CountType>
+        template<typename Tag, typename DatumDomain>
         struct CreateTreeElement
         {
             using type = Leaf<Tag, DatumDomain, boost::mp11::mp_size_t<1>>;
         };
 
-        template<typename Tag, typename... DatumElements, typename CountType>
-        struct CreateTreeElement<Tag, DatumStruct<DatumElements...>, CountType>
+        template<typename Tag, typename... DatumElements>
+        struct CreateTreeElement<Tag, DatumStruct<DatumElements...>>
         {
             using type = Node<
                 Tag,
                 Tuple<typename CreateTreeElement<
                     GetDatumElementUID<DatumElements>,
-                    GetDatumElementType<DatumElements>,
-                    boost::mp11::mp_size_t<1>>::type...>,
-                CountType>;
+                    GetDatumElementType<DatumElements>>::type...>,
+                boost::mp11::mp_size_t<1>>;
         };
 
         template<typename Leaf, std::size_t Count>
@@ -137,7 +136,7 @@ namespace llama::mapping::tree
 
         template<typename DatumDomain>
         using TreeFromDatumDomainImpl =
-            typename CreateTreeElement<NoName, DatumDomain, std::size_t>::type;
+            typename CreateTreeElement<NoName, DatumDomain>::type;
     }
 
     template<typename DatumDomain>
@@ -146,16 +145,13 @@ namespace llama::mapping::tree
     template<typename UserDomain, typename DatumDomain>
     using TreeFromDomains = typename internal::WrapInNNodes<
         internal::TreeFromDatumDomainImpl<DatumDomain>,
-        UserDomain::count - 1>::type;
+        UserDomain::count>::type;
 
     template<typename DatumDomain, typename UserDomain, std::size_t Pos = 0>
     LLAMA_FN_HOST_ACC_INLINE auto createTree(const UserDomain & size)
     {
-        if constexpr(Pos == UserDomain::count - 1)
-        {
-            return TreeFromDatumDomain<DatumDomain>{
-                size[UserDomain::count - 1]};
-        }
+        if constexpr(Pos == UserDomain::count)
+            return TreeFromDatumDomain<DatumDomain>{};
         else
         {
             Tuple inner{createTree<DatumDomain, UserDomain, Pos + 1>(size)};
@@ -185,12 +181,33 @@ namespace llama::mapping::tree
                     boost::mp11::mp_size_t<0>>{}...,
                 TreeCoordElement<0, boost::mp11::mp_size_t<0>>{}};
         }
+
+        template<
+            typename UserDomain,
+            std::size_t... UDIndices,
+            std::size_t... DatumDomainCoords>
+        LLAMA_FN_HOST_ACC_INLINE auto createTC(
+            const UserDomain & coord,
+            std::index_sequence<UDIndices...>,
+            DatumCoord<DatumDomainCoords...>)
+        {
+            return Tuple{
+                (std::size_t{coord[UDIndices]})...,
+                boost::mp11::mp_size_t<DatumDomainCoords>{}...};
+        }
     }
 
     template<typename DatumCoord, typename UserDomain>
     LLAMA_FN_HOST_ACC_INLINE auto createTreeCoord(const UserDomain & coord)
     {
         return internal::createTreeCoord(
+            coord, std::make_index_sequence<UserDomain::count>{}, DatumCoord{});
+    }
+
+    template<typename DatumCoord, typename UserDomain>
+    LLAMA_FN_HOST_ACC_INLINE auto createTC(const UserDomain & coord)
+    {
+        return internal::createTC(
             coord, std::make_index_sequence<UserDomain::count>{}, DatumCoord{});
     }
 }
