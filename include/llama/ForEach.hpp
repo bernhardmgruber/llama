@@ -35,6 +35,18 @@ namespace llama
         };
 
         template<
+            typename ChildType,
+            std::size_t Count,
+            typename BaseDatumCoord,
+            std::size_t... InnerCoords,
+            typename Functor>
+        LLAMA_FN_HOST_ACC_INLINE void applyFunctorForEachLeaf(
+            DatumArray<ChildType, Count>,
+            BaseDatumCoord base,
+            DatumCoord<InnerCoords...> inner,
+            Functor && functor);
+
+        template<
             typename... Children,
             typename BaseDatumCoord,
             std::size_t... InnerCoords,
@@ -59,6 +71,31 @@ namespace llama
                     llama::DatumCoord<InnerCoords..., childIndex>{},
                     std::forward<Functor>(functor));
             });
+        }
+
+        template<
+            typename ChildType,
+            std::size_t Count,
+            typename BaseDatumCoord,
+            std::size_t... InnerCoords,
+            typename Functor>
+        LLAMA_FN_HOST_ACC_INLINE void applyFunctorForEachLeaf(
+            DatumArray<ChildType, Count>,
+            BaseDatumCoord base,
+            DatumCoord<InnerCoords...> inner,
+            Functor && functor)
+        {
+            LLAMA_FORCE_INLINE_RECURSIVE
+            boost::mp11::mp_for_each<boost::mp11::mp_iota_c<Count>>(
+                [&](auto i) {
+                    constexpr auto childIndex = decltype(i)::value;
+                    LLAMA_FORCE_INLINE_RECURSIVE
+                    applyFunctorForEachLeaf(
+                        ChildType{},
+                        base,
+                        llama::DatumCoord<InnerCoords..., childIndex>{},
+                        std::forward<Functor>(functor));
+                });
         }
     }
 

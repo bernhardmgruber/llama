@@ -33,6 +33,16 @@ namespace llama
         }
 
         template<
+            typename Child,
+            std::size_t Count,
+            typename TargetDatumCoord,
+            std::size_t... IterCoords>
+        constexpr auto offsetOfImpl(
+            DatumArray<Child, Count> *,
+            TargetDatumCoord,
+            DatumCoord<IterCoords...>);
+
+        template<
             typename... DatumElements,
             typename TargetDatumCoord,
             std::size_t... IterCoords>
@@ -51,6 +61,29 @@ namespace llama
 
                 acc += offsetOfImpl(
                     (GetDatumElementType<Element> *)nullptr,
+                    TargetDatumCoord{},
+                    DatumCoord<IterCoords..., index>{});
+            });
+            return acc;
+        }
+
+        template<
+            typename ChildType,
+            std::size_t Count,
+            typename TargetDatumCoord,
+            std::size_t... IterCoords>
+        constexpr auto offsetOfImpl(
+            DatumArray<ChildType, Count> *,
+            TargetDatumCoord,
+            DatumCoord<IterCoords...>)
+        {
+            // FIXME: replace loop by arithmetic
+            std::size_t acc = 0;
+            boost::mp11::mp_for_each<boost::mp11::mp_iota_c<Count>>([&](
+                auto i) constexpr {
+                constexpr auto index = decltype(i)::value;
+                acc += offsetOfImpl(
+                    (ChildType *)nullptr,
                     TargetDatumCoord{},
                     DatumCoord<IterCoords..., index>{});
             });
@@ -77,11 +110,27 @@ namespace llama
     static constexpr auto sizeOf<DatumStruct<
         DatumElements...>> = (sizeOf<GetDatumElementType<DatumElements>> + ...);
 
+    template<typename Child, std::size_t Count>
+    static constexpr auto sizeOf<DatumArray<Child, Count>> = sizeOf<Child> *
+        Count;
+
     template<typename T>
     inline constexpr auto isDatumStruct = false;
 
     template<typename... DatumElements>
     inline constexpr auto isDatumStruct<DatumStruct<DatumElements...>> = true;
+
+    template<typename Type>
+    inline constexpr auto isDatumArray = false;
+
+    template<typename T, std::size_t Count>
+    inline constexpr auto isDatumArray<DatumArray<T, Count>> = true;
+
+    template<typename Type>
+    inline constexpr bool isIndex = false;
+
+    template<std::size_t Count>
+    inline constexpr bool isIndex<Index<Count>> = true;
 
     namespace internal
     {
@@ -108,6 +157,24 @@ namespace llama
                     ChildType,
                     DatumCoord<Coords...>>::type,
                 CurrTag>;
+        };
+
+        template<
+            typename CurrTag,
+            typename ChildType,
+            std::size_t Count,
+            std::size_t FirstCoord,
+            std::size_t... Coords>
+        struct GetTagImpl<
+            CurrTag,
+            DatumArray<ChildType, Count>,
+            DatumCoord<FirstCoord, Coords...>>
+        {
+            using ChildTag = Index<FirstCoord>;
+            using type = typename GetTagImpl<
+                ChildTag,
+                ChildType,
+                DatumCoord<Coords...>>::type;
         };
 
         template<typename CurrTag, typename T>
@@ -224,6 +291,27 @@ namespace llama
                 Tags...>::type;
         };
 
+        template<
+            typename ChildType,
+            std::size_t Count,
+            std::size_t... ResultCoords,
+            typename FirstTag,
+            typename... Tags>
+        struct GetCoordFromTagsImpl<
+            DatumArray<ChildType, Count>,
+            DatumCoord<ResultCoords...>,
+            FirstTag,
+            Tags...>
+        {
+            static_assert(isIndex<FirstTag>);
+            static_assert(FirstTag::value < Count, "Index out of bounds");
+
+            using type = typename GetCoordFromTagsImpl<
+                ChildType,
+                DatumCoord<ResultCoords..., FirstTag::value>,
+                Tags...>::type;
+        };
+
         template<typename DatumDomain, typename DatumCoord>
         struct GetCoordFromTagsImpl<DatumDomain, DatumCoord>
         {
@@ -252,6 +340,20 @@ namespace llama
         {
             using ChildType = GetDatumElementType<
                 boost::mp11::mp_at_c<DatumStruct<Children...>, HeadCoord>>;
+            using type =
+                typename GetTypeImpl<ChildType, DatumCoord<TailCoords...>>::
+                    type;
+        };
+
+        template<
+            typename ChildType,
+            std::size_t Count,
+            std::size_t HeadCoord,
+            std::size_t... TailCoords>
+        struct GetTypeImpl<
+            DatumArray<ChildType, Count>,
+            DatumCoord<HeadCoord, TailCoords...>>
+        {
             using type =
                 typename GetTypeImpl<ChildType, DatumCoord<TailCoords...>>::
                     type;

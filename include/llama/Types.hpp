@@ -70,25 +70,16 @@ namespace llama
     template<std::size_t I>
     using Index = boost::mp11::mp_size_t<I>;
 
-    namespace internal
-    {
-        template<typename ChildType, std::size_t... Is>
-        auto makeDatumArray(std::index_sequence<Is...>)
-        {
-            return DatumStruct<DatumElement<Index<Is>, ChildType>...>{};
-        }
-    }
-
     /// An array of identical \ref DatumElement with \ref Index specialized on
     /// consecutive numbers. Can be used anywhere where \ref DatumStruct may
     /// used.
-    /// \tparam ChildType Type to repeat. May be either a nested \ref
+    /// \tparam Child Type to repeat. May be either a nested \ref
     /// DatumStruct or DatumArray or any other type making it an array of leaves
     /// of this type.
     /// \tparam Count Number of repetitions of ChildType.
-    template<typename ChildType, std::size_t Count>
-    using DatumArray = decltype(
-        internal::makeDatumArray<ChildType>(std::make_index_sequence<Count>{}));
+    template<typename Child, std::size_t Count>
+    struct DatumArray
+    {};
 
     /// Shortcut alias for \ref DatumArray
     template<typename ChildType, std::size_t Count>

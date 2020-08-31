@@ -370,9 +370,11 @@ namespace llama
         LLAMA_FN_HOST_ACC_INLINE auto access(DatumCoord<Coord...> = {}) const
             -> decltype(auto)
         {
-            if constexpr(isDatumStruct<GetType<
-                             DatumDomain,
-                             Cat<BoundDatumDomain, DatumCoord<Coord...>>>>)
+            using ResolvedType = GetType<
+                DatumDomain,
+                Cat<BoundDatumDomain, DatumCoord<Coord...>>>;
+            if constexpr(
+                isDatumStruct<ResolvedType> || isDatumArray<ResolvedType>)
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
                 return VirtualDatum<
@@ -393,9 +395,11 @@ namespace llama
         LLAMA_FN_HOST_ACC_INLINE auto access(DatumCoord<Coord...> coord = {})
             -> decltype(auto)
         {
-            if constexpr(isDatumStruct<GetType<
-                             DatumDomain,
-                             Cat<BoundDatumDomain, DatumCoord<Coord...>>>>)
+            using ResolvedType = GetType<
+                DatumDomain,
+                Cat<BoundDatumDomain, DatumCoord<Coord...>>>;
+            if constexpr(
+                isDatumStruct<ResolvedType> || isDatumArray<ResolvedType>)
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
                 return VirtualDatum<

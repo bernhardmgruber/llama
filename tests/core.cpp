@@ -78,35 +78,9 @@ TEST_CASE("prettyPrintType")
     >,
     boost::mp11::mp_list<
         tag::Flags,
-        boost::mp11::mp_list<
-            boost::mp11::mp_list<
-                std::integral_constant<
-                    unsigned long,
-                    0
-                >,
-                bool
-            >,
-            boost::mp11::mp_list<
-                std::integral_constant<
-                    unsigned long,
-                    1
-                >,
-                bool
-            >,
-            boost::mp11::mp_list<
-                std::integral_constant<
-                    unsigned long,
-                    2
-                >,
-                bool
-            >,
-            boost::mp11::mp_list<
-                std::integral_constant<
-                    unsigned long,
-                    3
-                >,
-                bool
-            >
+        llama::DatumArray<
+            bool,
+            4
         >
     >
 >)");
