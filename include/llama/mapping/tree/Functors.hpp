@@ -79,9 +79,9 @@ namespace llama::mapping::tree::functor
 
         template<typename Tree, typename TreeCoord>
         LLAMA_FN_HOST_ACC_INLINE auto
-        tcToResultCoord(const TreeCoord & tc, const Tree &) const -> TreeCoord
+        tcToResultCoord(const TreeCoord & tc, const Tree & tree) const
         {
-            return tc; // TODO
+            return tcToResultCoordImpl(tc, tree);
         }
 
         template<typename Tree, typename ResultCoord>
@@ -147,6 +147,42 @@ namespace llama::mapping::tree::functor
                         branch,
                         (runtime + LLAMA_DEREFERENCE(basicCoord.first.runtime))
                             * LLAMA_DEREFERENCE(branch.count)));
+            }
+        }
+
+        template<typename FirstCoord, typename... Coords, typename NodeOrLeaf>
+        LLAMA_FN_HOST_ACC_INLINE static auto tcToResultCoordImpl(
+            const Tuple<FirstCoord, Coords...> & tc,
+            const NodeOrLeaf & nodeOrLeaf,
+            std::size_t runtime = 0)
+        {
+            if constexpr(sizeof...(Coords) == 0)
+                return Tuple<std::size_t>{
+                    runtime + LLAMA_DEREFERENCE(tc.first)};
+            else
+            {
+                if constexpr(std::is_same_v<FirstCoord, std::size_t>)
+                {
+                    const auto & child
+                        = getTupleElementRef<0>(nodeOrLeaf.childs);
+                    return tupleCat(
+                        Tuple{std::size_t{0}},
+                        tcToResultCoordImpl(
+                            tc.rest,
+                            child,
+                            runtime + LLAMA_DEREFERENCE(tc.first)));
+                }
+                else
+                {
+                    const auto & child = getTupleElementRef<FirstCoord::value>(
+                        nodeOrLeaf.childs);
+                    return tupleCat(
+                        Tuple{FirstCoord{}},
+                        tcToResultCoordImpl(
+                            tc.rest,
+                            child,
+                            runtime * LLAMA_DEREFERENCE(child.count)));
+                }
             }
         }
     };
