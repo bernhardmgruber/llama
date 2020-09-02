@@ -57,28 +57,31 @@ namespace llama::mapping::tree
     {
         template<typename NodeOrLeaf>
         auto countAndIdentToString(const NodeOrLeaf & nodeOrLeaf) -> std::string
-        {
-            auto r = std::to_string(nodeOrLeaf.count);
-            if constexpr(std::is_same_v<
-                             std::decay_t<decltype(nodeOrLeaf.count)>,
-                             std::size_t>)
-                r += "R"; // runtime
-            else
-                r += "C"; // compile time
-            r += std::string{" * "}
-                + toString(typename NodeOrLeaf::Identifier{});
-            return r;
-        }
+        {}
+    }
+
+    template<typename Identifier, typename ChildrenTuple>
+    auto toString(const StructNode<Identifier, ChildrenTuple> & node)
+        -> std::string
+    {
+        return "[ " + toString(node.childs) + " ]";
     }
 
     template<typename Identifier, typename Type, typename CountType>
-    auto toString(const Node<Identifier, Type, CountType> & node) -> std::string
+    auto toString(const ArrayNode<Identifier, Type, CountType> & node)
+        -> std::string
     {
-        return internal::countAndIdentToString(node) + "[ "
-            + toString(node.childs) + " ]";
+        auto r = std::to_string(node.count);
+        if constexpr(std::is_same_v<CountType, std::size_t>)
+            r += "R"; // runtime
+        else
+            r += "C"; // compile time
+        return r + std::string{" * "} + toString(Identifier{})
+            + toString(node.child);
     }
-    template<typename Identifier, typename Type, typename CountType>
-    auto toString(const Leaf<Identifier, Type, CountType> & leaf) -> std::string
+
+    template<typename Identifier, typename Type>
+    auto toString(const Leaf<Identifier, Type> & leaf) -> std::string
     {
         auto raw = boost::core::demangle(typeid(Type).name());
 #ifdef _MSC_VER
@@ -87,6 +90,6 @@ namespace llama::mapping::tree
 #ifdef __GNUG__
         boost::replace_all(raw, " ()", "");
 #endif
-        return internal::countAndIdentToString(leaf) + "(" + raw + ")";
+        return raw;
     }
 }

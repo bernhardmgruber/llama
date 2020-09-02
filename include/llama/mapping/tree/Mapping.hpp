@@ -68,18 +68,18 @@ namespace llama::mapping::tree
                     return tree;
             }
 
-            template<typename TreeCoord>
-            LLAMA_FN_HOST_ACC_INLINE auto basicCoordToResultCoord(
-                const TreeCoord & basicCoord,
-                const Tree & tree) const
-            {
-                if constexpr(sizeof...(Operations) >= 1)
-                    return next.basicCoordToResultCoord(
-                        operation.basicCoordToResultCoord(basicCoord, tree),
-                        treeAfterOp);
-                else
-                    return basicCoord;
-            }
+            // template<typename TreeCoord>
+            // LLAMA_FN_HOST_ACC_INLINE auto basicCoordToResultCoord(
+            //    const TreeCoord & basicCoord,
+            //    const Tree & tree) const
+            //{
+            //    if constexpr(sizeof...(Operations) >= 1)
+            //        return next.basicCoordToResultCoord(
+            //            operation.basicCoordToResultCoord(basicCoord, tree),
+            //            treeAfterOp);
+            //    else
+            //        return basicCoord;
+            //}
 
             template<typename TreeCoord>
             LLAMA_FN_HOST_ACC_INLINE auto
@@ -120,13 +120,13 @@ namespace llama::mapping::tree
                 return tree;
             }
 
-            template<typename TreeCoord>
-            LLAMA_FN_HOST_ACC_INLINE auto basicCoordToResultCoord(
-                TreeCoord const & basicCoord,
-                Tree const & tree) const -> TreeCoord
-            {
-                return basicCoord;
-            }
+            // template<typename TreeCoord>
+            // LLAMA_FN_HOST_ACC_INLINE auto basicCoordToResultCoord(
+            //    TreeCoord const & basicCoord,
+            //    Tree const & tree) const -> TreeCoord
+            //{
+            //    return basicCoord;
+            //}
 
             template<typename TreeCoord>
             LLAMA_FN_HOST_ACC_INLINE auto
@@ -147,51 +147,50 @@ namespace llama::mapping::tree
 
         template<typename Identifier, typename Type, typename CountType>
         LLAMA_FN_HOST_ACC_INLINE auto
-        getTreeBlobSize(const Node<Identifier, Type, CountType> & node)
+        getTreeBlobSize(const ArrayNode<Identifier, Type, CountType> & node)
             -> std::size_t;
+
+        template<typename Identifier, typename ChildrenTuple>
+        LLAMA_FN_HOST_ACC_INLINE auto
+        getTreeBlobSize(const StructNode<Identifier, ChildrenTuple> & node)
+            -> std::size_t;
+
+        template<typename Identifier, typename Type>
+        LLAMA_FN_HOST_ACC_INLINE auto
+        getTreeBlobSize(const Leaf<Identifier, Type> & leaf) -> std::size_t;
 
         template<typename Identifier, typename Type, typename CountType>
         LLAMA_FN_HOST_ACC_INLINE auto
-        getTreeBlobSize(const Leaf<Identifier, Type, CountType> & leaf)
-            -> std::size_t;
-
-        template<typename... Children, std::size_t... Is, typename Count>
-        LLAMA_FN_HOST_ACC_INLINE auto getChildrenBlobSize(
-            const Tuple<Children...> & childs,
-            std::index_sequence<Is...> ii,
-            const Count & count) -> std::size_t
+        getTreeBlobSize(const ArrayNode<Identifier, Type, CountType> & node)
+            -> std::size_t
         {
-            return count * (getTreeBlobSize(getTupleElement<Is>(childs)) + ...);
+            return getTreeBlobSize(node.child) * LLAMA_DEREFERENCE(node.count);
         }
 
-        template<typename Identifier, typename Type, typename CountType>
+        template<typename... Children, std::size_t... Is>
+        LLAMA_FN_HOST_ACC_INLINE auto getChildrenBlobSize(
+            const Tuple<Children...> & children,
+            std::index_sequence<Is...> ii) -> std::size_t
+        {
+            return (getTreeBlobSize(getTupleElement<Is>(children)) + ...);
+        }
+
+        template<typename Identifier, typename ChildrenTuple>
         LLAMA_FN_HOST_ACC_INLINE auto
-        getTreeBlobSize(const Node<Identifier, Type, CountType> & node)
+        getTreeBlobSize(const StructNode<Identifier, ChildrenTuple> & node)
             -> std::size_t
         {
             constexpr std::size_t childCount = boost::mp11::mp_size<
-                std::decay_t<decltype(node.childs)>>::value;
+                std::decay_t<decltype(node.children)>>::value;
             return getChildrenBlobSize(
-                node.childs,
-                std::make_index_sequence<childCount>{},
-                LLAMA_DEREFERENCE(node.count));
+                node.children, std::make_index_sequence<childCount>{});
         }
 
-        template<typename Identifier, typename Type, typename CountType>
+        template<typename Identifier, typename Type>
         LLAMA_FN_HOST_ACC_INLINE auto
-        getTreeBlobSize(const Leaf<Identifier, Type, CountType> & leaf)
-            -> std::size_t
+        getTreeBlobSize(const Leaf<Identifier, Type> & leaf) -> std::size_t
         {
             return leaf.count * sizeof(Type);
-        }
-
-        template<typename Childs, typename CountType>
-        LLAMA_FN_HOST_ACC_INLINE auto
-        getTreeBlobSize(const Childs & childs, const CountType & count)
-            -> std::size_t
-        {
-            return getTreeBlobSize(
-                Node<NoName, Childs, CountType>{count, childs});
         }
 
         namespace internal
@@ -199,11 +198,10 @@ namespace llama::mapping::tree
             template<
                 std::size_t MaxPos,
                 typename Identifier,
-                typename Type,
-                typename CountType,
+                typename ChildrenTuple,
                 std::size_t... Is>
             LLAMA_FN_HOST_ACC_INLINE auto sumChildrenSmallerThan(
-                const Node<Identifier, Type, CountType> & node,
+                const StructNode<Identifier, ChildrenTuple> & node,
                 std::index_sequence<Is...>) -> std::size_t
             {
                 return (
@@ -220,8 +218,9 @@ namespace llama::mapping::tree
         {
             if constexpr(sizeof...(Coords) > 1)
                 return getTreeBlobSize(
-                           tree.childs,
-                           LLAMA_DEREFERENCE(treeCoord.first.runtime))
+                           StructNode<NoName, decltype(tree.children)>{
+                               tree.childs})
+                    * LLAMA_DEREFERENCE(treeCoord.first.runtime)
                     + internal::sumChildrenSmallerThan<
                            treeCoord.first.compiletime>(
                            tree,
@@ -235,39 +234,48 @@ namespace llama::mapping::tree
                 return sizeof(typename Tree::Type) * treeCoord.first.runtime;
         }
 
-        template<typename Tree, typename... Coords>
-        LLAMA_FN_HOST_ACC_INLINE auto
-        getTreeBlobByteTC(const Tree & tree, const Tuple<Coords...> & tc)
-            -> std::size_t
+        template<
+            typename Identifier,
+            typename ChildrenTuple,
+            typename... Coords>
+        LLAMA_FN_HOST_ACC_INLINE auto getTreeBlobByteTC(
+            const StructNode<Identifier, ChildrenTuple> & node,
+            const Tuple<Coords...> & tc) -> std::size_t
         {
             if constexpr(sizeof...(Coords) > 0)
             {
-                std::size_t offset = 0;
-                if constexpr(std::is_same_v<decltype(tc.first), std::size_t>)
-                {
-                    // runtime index, currently for UD nodes
-                    static_assert(
-                        SizeOfTuple<std::decay_t<decltype(tree.childs)>> == 1);
-                    const auto & child = getTupleElementRef<0>(tree.childs);
-                    offset
-                        += getTreeBlobSize(child) * LLAMA_DEREFERENCE(tc.first);
-                    offset += getTreeBlobByteTC(child, tupleRest(tc));
-                }
-                else
-                {
-                    // compile time index, currently for DD nodes
-                    static_assert(std::is_same_v<
-                                  std::decay_t<decltype(tree.count)>,
-                                  boost::mp11::mp_size_t<1>>);
-                    constexpr auto childIndex = decltype(tc.first)::value;
-                    offset += internal::sumChildrenSmallerThan<childIndex>(
-                        tree,
-                        std::make_index_sequence<
-                            SizeOfTuple<typename Tree::ChildrenTuple>>{});
-                    offset += getTreeBlobByteTC(
-                        getTupleElementRef<childIndex>(tree.childs),
-                        tupleRest(tc));
-                }
+                static_assert(
+                    !std::is_same_v<decltype(tc.first), std::size_t>,
+                    "Coord for a StructNode needs to be a compile time "
+                    "constant");
+
+                constexpr auto childIndex = decltype(tc.first)::value;
+                auto offset = internal::sumChildrenSmallerThan<childIndex>(
+                    node,
+                    std::make_index_sequence<SizeOfTuple<ChildrenTuple>>{});
+                offset += getTreeBlobByteTC(
+                    getTupleElementRef<childIndex>(node.children),
+                    tupleRest(tc));
+                return offset;
+            }
+            else
+                return 0;
+        }
+
+        template<
+            typename Identifier,
+            typename Type,
+            typename CountType,
+            typename... Coords>
+        LLAMA_FN_HOST_ACC_INLINE auto getTreeBlobByteTC(
+            const ArrayNode<Identifier, Type, CountType> & tree,
+            const Tuple<Coords...> & tc) -> std::size_t
+        {
+            if constexpr(sizeof...(Coords) > 0)
+            {
+                auto offset
+                    = getTreeBlobSize(tree.child) * LLAMA_DEREFERENCE(tc.first);
+                offset += getTreeBlobByteTC(tree.child, tupleRest(tc));
                 return offset;
             }
             else

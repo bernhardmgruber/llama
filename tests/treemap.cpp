@@ -265,7 +265,9 @@ TEST_CASE("treemapping.MoveRTDown<>")
     const UserDomain userDomain{16, 16};
 
     auto treeOperationList
-        = llama::Tuple{tree::functor::MoveRTDown<tree::TreeCoord<>>{4}};
+        = llama::Tuple{
+        //tree::functor::MoveRTDown<tree::TreeCoord<>>{4}
+    };
     using Mapping
         = tree::Mapping<UserDomain, Name, decltype(treeOperationList)>;
     const Mapping mapping(userDomain, treeOperationList);

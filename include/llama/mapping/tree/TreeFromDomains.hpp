@@ -34,27 +34,33 @@ namespace llama::mapping::tree
 
     template<
         typename T_Identifier,
-        typename T_Type,
-        typename CountType = std::size_t>
+        typename T_Type>
     struct Leaf
     {
         using Identifier = T_Identifier;
         using Type = T_Type;
-
-        CountType count = one<CountType>;
     };
 
     template<
         typename T_Identifier,
-        typename T_ChildrenTuple,
+        typename T_ChildNode,
         typename CountType = std::size_t>
-    struct Node
+    struct ArrayNode
+    {
+        using Identifier = T_Identifier;
+        using ChildNode = T_ChildNode;
+
+        const CountType count = one<CountType>;
+        const ChildNode child = {};
+    };
+
+    template<typename T_Identifier, typename T_ChildrenTuple>
+    struct StructNode
     {
         using Identifier = T_Identifier;
         using ChildrenTuple = T_ChildrenTuple;
 
-        CountType count = one<CountType>;
-        ChildrenTuple childs = {};
+        const ChildrenTuple children = {};
     };
 
     template<std::size_t Compiletime = 0, typename RuntimeType = std::size_t>
@@ -106,30 +112,29 @@ namespace llama::mapping::tree
         template<typename Tag, typename DatumDomain>
         struct CreateTreeElement
         {
-            using type = Leaf<Tag, DatumDomain, boost::mp11::mp_size_t<1>>;
+            using type = Leaf<Tag, DatumDomain>;
         };
 
         template<typename Tag, typename... DatumElements>
         struct CreateTreeElement<Tag, DatumStruct<DatumElements...>>
         {
-            using type = Node<
+            using type = StructNode<
                 Tag,
                 Tuple<typename CreateTreeElement<
                     GetDatumElementUID<DatumElements>,
-                    GetDatumElementType<DatumElements>>::type...>,
-                boost::mp11::mp_size_t<1>>;
+                    GetDatumElementType<DatumElements>>::type...>>;
         };
 
         template<typename Leaf, std::size_t Count>
-        struct WrapInNNodes
+        struct WrapInNArrayNodes
         {
-            using type = Node<
+            using type = ArrayNode<
                 NoName,
-                Tuple<typename WrapInNNodes<Leaf, Count - 1>::type>>;
+                typename WrapInNArrayNodes<Leaf, Count - 1>::type>;
         };
 
         template<typename Leaf>
-        struct WrapInNNodes<Leaf, 0>
+        struct WrapInNArrayNodes<Leaf, 0>
         {
             using type = Leaf;
         };
@@ -143,7 +148,7 @@ namespace llama::mapping::tree
     using TreeFromDatumDomain = internal::TreeFromDatumDomainImpl<DatumDomain>;
 
     template<typename UserDomain, typename DatumDomain>
-    using TreeFromDomains = typename internal::WrapInNNodes<
+    using TreeFromDomains = typename internal::WrapInNArrayNodes<
         internal::TreeFromDatumDomainImpl<DatumDomain>,
         UserDomain::count>::type;
 
@@ -154,8 +159,8 @@ namespace llama::mapping::tree
             return TreeFromDatumDomain<DatumDomain>{};
         else
         {
-            Tuple inner{createTree<DatumDomain, UserDomain, Pos + 1>(size)};
-            return Node<NoName, decltype(inner)>{size[Pos], inner};
+            auto inner = createTree<DatumDomain, UserDomain, Pos + 1>(size);
+            return ArrayNode<NoName, decltype(inner)>{size[Pos], inner};
         }
     };
 
