@@ -62,6 +62,18 @@
 #endif
 #endif
 
+#ifndef LLAMA_LAMBDA_FORCE_INLINE
+#if BOOST_COMP_NVCC != 0
+#define LLAMA_LAMBDA_FORCE_INLINE __forceinline__
+#elif BOOST_COMP_GNUC != 0
+#define LLAMA_LAMBDA_FORCE_INLINE __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define LLAMA_LAMBDA_FORCE_INLINE [[msvc::forceinline]]
+#else
+#define LLAMA_LAMBDA_FORCE_INLINE
+#endif
+#endif
+
 #if BOOST_COMP_INTEL != 0
 #define LLAMA_FORCE_INLINE_RECURSIVE _Pragma("forceinline recursive")
 #elif defined(_MSC_VER)
