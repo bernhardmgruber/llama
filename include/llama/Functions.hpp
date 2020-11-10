@@ -203,6 +203,24 @@ namespace llama
     using GetCoordFromTagsRelative =
         typename internal::GetCoordFromTagsRelativeImpl<DatumDomain, BaseDatumCoord, Tags...>::type;
 
+    namespace internal
+    {
+        template <typename T>
+        struct DatumDomainAsListImpl
+        {
+            using type = boost::mp11::mp_list<T>;
+        };
+
+        template <typename... Elements>
+        struct DatumDomainAsListImpl<DatumStruct<Elements...>>
+        {
+            using type = boost::mp11::mp_append<typename DatumDomainAsListImpl<GetDatumElementType<Elements>>::type...>;
+        };
+    } // namespace internal
+
+    template <typename DatumDomain>
+    using DatumDomainAsList = typename internal::DatumDomainAsListImpl<DatumDomain>::type;
+
     /// Iterator supporting \ref ArrayDomainIndexRange.
     template <std::size_t Dim>
     struct ArrayDomainIndexIterator
