@@ -15,7 +15,7 @@
 #include <random>
 #include <utility>
 
-constexpr auto MAPPING = 1; ///< 0 native AoS, 1 native SoA, 2 native SoA (separate blobs), 3 tree AoS, 4 tree SoA
+constexpr auto MAPPING = 3; ///< 0 AoS, 1 SoA, 2 SoA (separate blobs), 4 AoSoA, 4 tree AoS, 5 tree SoA
 constexpr auto KERNEL = 2; ///< 0 non-caching kernel, 1 kernel with shared memory caching, 2 non-caching Vc kernel
 constexpr auto PROBLEM_SIZE = 16 * 1024; ///< total number of particles
 constexpr auto STEPS = 5; ///< number of steps to calculate
@@ -165,6 +165,10 @@ inline constexpr auto canUseVcWithMapping = false;
 template <typename ArrayDomain, typename DatumDomain, typename Linearize>
 inline constexpr auto canUseVcWithMapping<llama::mapping::SoA<ArrayDomain, DatumDomain, Linearize>> = true;
 
+template <typename ArrayDomain, typename DatumDomain, std::size_t Lanes, typename Linearize>
+inline constexpr auto canUseVcWithMapping<llama::mapping::AoSoA<ArrayDomain, DatumDomain, Lanes, Linearize>> = Lanes
+    >= Vc::float_v::size();
+
 template <std::size_t ProblemSize, std::size_t Elems>
 struct UpdateKernelVc
 {
@@ -178,7 +182,7 @@ struct UpdateKernelVc
     {
         static_assert(
             canUseVcWithMapping<typename View::Mapping>,
-            "UpdateKernelVc only works with compatible mappings like SoA");
+            "UpdateKernelVc only works with compatible mappings like SoA or AoSoAs");
 
         const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u];
 
@@ -270,8 +274,10 @@ int main()
         if constexpr (MAPPING == 2)
             return llama::mapping::SoA{arrayDomain, Particle{}, std::true_type{}};
         if constexpr (MAPPING == 3)
-            return llama::mapping::tree::Mapping{arrayDomain, llama::Tuple{}, Particle{}};
+            return llama::mapping::AoSoA<std::decay_t<decltype(arrayDomain)>, Particle, elemCount>{arrayDomain};
         if constexpr (MAPPING == 4)
+            return llama::mapping::tree::Mapping{arrayDomain, llama::Tuple{}, Particle{}};
+        if constexpr (MAPPING == 5)
             return llama::mapping::tree::Mapping{
                 arrayDomain,
                 llama::Tuple{llama::mapping::tree::functor::LeafOnlyRT()},
