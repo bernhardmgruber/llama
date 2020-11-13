@@ -13,3 +13,15 @@ target_link_libraries(${PROJECT_NAME} PRIVATE llama::llama alpaka::alpaka)
 if (Vc_FOUND)
 	target_link_libraries(${PROJECT_NAME} PRIVATE Vc::Vc)
 endif()
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+	target_compile_options(${PROJECT_NAME} PRIVATE
+		-march=native
+		-ffast-math
+	)
+elseif(MSVC)
+	target_compile_options(${PROJECT_NAME} PRIVATE
+		/arch:AVX2
+		/fp:fast
+	)
+endif()
