@@ -7,7 +7,6 @@
  */
 
 #include "../../common/Stopwatch.hpp"
-#include "../../common/alpakaHelpers.hpp"
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExampleDefaultAcc.hpp>
@@ -19,7 +18,6 @@
 constexpr auto MAPPING = 1; ///< 0 native AoS, 1 native SoA, 2 native SoA (separate blobs), 3 tree AoS, 4 tree SoA
 constexpr auto KERNEL = 2; ///< 0 non-caching kernel, 1 kernel with shared memory caching, 2 non-caching Vc kernel
 constexpr auto PROBLEM_SIZE = 16 * 1024; ///< total number of particles
-constexpr auto BLOCK_SIZE = 256; ///< number of elements per block
 constexpr auto STEPS = 5; ///< number of steps to calculate
 
 using FP = float;
@@ -206,6 +204,36 @@ struct MoveKernel
     }
 };
 
+template <typename Acc>
+struct Workdiv
+{
+#if __has_include(<Vc/Vc>)
+    static constexpr std::size_t elements = Vc::float_v::size();
+#else
+    static constexpr std::size_t elements = 8;
+#endif
+    static constexpr std::size_t threadsPerBlock = 1;
+};
+
+#ifdef ALPAKA_ACC_GPU_CUDA_ENABLED
+template <typename Dim, typename Size>
+struct Workdiv<alpaka::AccGpuCudaRt<Dim, Size>>
+{
+    static constexpr std::size_t elements = 1;
+    static constexpr std::size_t threadsPerBlock = 256;
+};
+#endif
+
+#ifdef ALPAKA_ACC_CPU_B_SEQ_T_OMP2_ENABLED
+template <typename Dim, typename Size>
+struct Workdiv<alpaka::AccCpuOmp2Threads<Dim, Size>>
+{
+    // TODO: evaluate these previous settings from A. Matthes
+    static constexpr std::size_t elements = 128;
+    static constexpr std::size_t threadsPerBlock = 2;
+};
+#endif
+
 using Dim = alpaka::DimInt<1>;
 using Size = std::size_t;
 
@@ -219,12 +247,9 @@ using PltfHost = alpaka::Pltf<DevHost>;
 using PltfAcc = alpaka::Pltf<DevAcc>;
 using Queue = alpaka::Queue<DevAcc, alpaka::Blocking>;
 
-//constexpr std::size_t hardwareThreads = 2; // relevant for OpenMP2Threads
-//using Distribution = common::ThreadsElemsDistribution<Acc, BLOCK_SIZE, hardwareThreads>;
-//constexpr std::size_t elemCount = Distribution::elemCount;
-//constexpr std::size_t threadCount = Distribution::threadCount;
-constexpr std::size_t elemCount = 8;
-constexpr std::size_t threadCount = 1;
+constexpr std::size_t elemCount = Workdiv<Acc>::elements;
+constexpr std::size_t threadCount = Workdiv<Acc>::threadsPerBlock;
+constexpr auto blockSize = elemCount * threadCount;
 
 int main()
 {
@@ -293,8 +318,7 @@ int main()
 
     const alpaka::Vec<Dim, Size> Elems(static_cast<Size>(elemCount));
     const alpaka::Vec<Dim, Size> threads(static_cast<Size>(threadCount));
-    constexpr auto innerCount = elemCount * threadCount;
-    const alpaka::Vec<Dim, Size> blocks(static_cast<Size>((PROBLEM_SIZE + innerCount - 1u) / innerCount));
+    const alpaka::Vec<Dim, Size> blocks(static_cast<Size>((PROBLEM_SIZE + blockSize - 1u) / blockSize));
 
     const auto workdiv = alpaka::WorkDivMembers<Dim, Size>{blocks, threads, Elems};
 
@@ -302,7 +326,7 @@ int main()
     {
         auto updateKernel = [&] {
             if constexpr (KERNEL == 0)
-                return UpdateKernelSM<PROBLEM_SIZE, elemCount, BLOCK_SIZE>{};
+                return UpdateKernelSM<PROBLEM_SIZE, elemCount, blockSize>{};
             else if constexpr (KERNEL == 1)
                 return UpdateKernel<PROBLEM_SIZE, elemCount>{};
 #if __has_include(<Vc/Vc>)
