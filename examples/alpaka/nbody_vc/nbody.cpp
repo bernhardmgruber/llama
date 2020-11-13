@@ -19,6 +19,7 @@ constexpr auto MAPPING = 1; ///< 0 native AoS, 1 native SoA, 2 native SoA (separ
 constexpr auto KERNEL = 2; ///< 0 non-caching kernel, 1 kernel with shared memory caching, 2 non-caching Vc kernel
 constexpr auto PROBLEM_SIZE = 16 * 1024; ///< total number of particles
 constexpr auto STEPS = 5; ///< number of steps to calculate
+constexpr auto ALLOW_RSQRT = true; // rsqrt can be way faster, but less accurate
 
 using FP = float;
 constexpr FP EPS2 = 0.01;
@@ -46,14 +47,14 @@ using Particle = llama::DS<
     llama::DE<tag::Mass, FP>>;
 // clang-format on
 
-template <typename VirtualParticleI, typename VirtualParticleJ>
-LLAMA_FN_HOST_ACC_INLINE void pPInteraction(VirtualParticleI pi, VirtualParticleJ pj, FP ts)
+template <typename Acc, typename VirtualParticleI, typename VirtualParticleJ>
+LLAMA_FN_HOST_ACC_INLINE void pPInteraction(const Acc& acc, VirtualParticleI pi, VirtualParticleJ pj, FP ts)
 {
     auto dist = pi(tag::Pos()) - pj(tag::Pos());
     dist *= dist;
     const FP distSqr = EPS2 + dist(tag::X()) + dist(tag::Y()) + dist(tag::Z());
     const FP distSixth = distSqr * distSqr * distSqr;
-    const FP invDistCube = 1.0f / std::sqrt(distSixth);
+    const FP invDistCube = ALLOW_RSQRT ? alpaka::math::rsqrt(acc, distSixth) : (1.0f / std::sqrt(distSixth));
     const FP sts = pj(tag::Mass()) * invDistCube * ts;
     pi(tag::Vel()) += dist * sts;
 }
@@ -105,7 +106,7 @@ struct UpdateKernelSM
             {
                 LLAMA_INDEPENDENT_DATA
                 for (auto i = start; i < end; ++i)
-                    pPInteraction(particles(i), sharedView(pos2), ts);
+                    pPInteraction(acc, particles(i), sharedView(pos2), ts);
             }
             alpaka::syncBlockThreads(acc);
         }
@@ -127,7 +128,7 @@ struct UpdateKernel
         {
             LLAMA_INDEPENDENT_DATA
             for (auto i = start; i < end; ++i)
-                pPInteraction(particles(i), particles(j), ts);
+                pPInteraction(acc, particles(i), particles(j), ts);
         }
     }
 };
@@ -151,7 +152,7 @@ LLAMA_FN_HOST_ACC_INLINE void pPInteractionVc(VirtualParticleI pi, VirtualPartic
     const Vc::float_v zdistanceSqr = zdistance * zdistance;
     const Vc::float_v distSqr = EPS2 + xdistanceSqr + ydistanceSqr + zdistanceSqr;
     const Vc::float_v distSixth = distSqr * distSqr * distSqr;
-    const Vc::float_v invDistCube = 1.0f / Vc::sqrt(distSixth);
+    const Vc::float_v invDistCube = ALLOW_RSQRT ? Vc::rsqrt(distSixth) : (1.0f / Vc::sqrt(distSixth));
     const Vc::float_v sts = broadcastVec(pj(tag::Mass())) * invDistCube * ts;
     storeVec(pi(tag::Vel{}, tag::X{}), xdistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::X{})));
     storeVec(pi(tag::Vel{}, tag::Y{}), ydistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::Y{})));
