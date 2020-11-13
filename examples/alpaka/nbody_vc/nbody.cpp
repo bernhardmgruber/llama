@@ -288,12 +288,12 @@ int main()
     auto hostBuffer = alpaka::allocBuf<std::byte, Size>(devHost, bufferSize);
     auto accBuffer = alpaka::allocBuf<std::byte, Size>(devAcc, bufferSize);
 
-    chrono.printAndReset("Alloc");
+    chrono.printAndReset("alloc");
 
     auto hostView = llama::View{mapping, llama::Array{alpaka::getPtrNative(hostBuffer)}};
     auto accView = llama::View{mapping, llama::Array{alpaka::getPtrNative(accBuffer)}};
 
-    chrono.printAndReset("Views");
+    chrono.printAndReset("views");
 
     /// Random initialization of the particles
     std::mt19937_64 generator;
@@ -312,10 +312,10 @@ int main()
         hostView(i) = temp;
     }
 
-    chrono.printAndReset("Init");
+    chrono.printAndReset("init");
 
     alpaka::memcpy(queue, accBuffer, hostBuffer, bufferSize);
-    chrono.printAndReset("Copy H->D");
+    chrono.printAndReset("copy H->D");
 
     const alpaka::Vec<Dim, Size> Elems(static_cast<Size>(elemCount));
     const alpaka::Vec<Dim, Size> threads(static_cast<Size>(threadCount));
@@ -336,16 +336,15 @@ int main()
 #endif
         }();
         alpaka::exec<Acc>(queue, workdiv, updateKernel, accView, ts);
-
-        chrono.printAndReset("Update kernel");
+        chrono.printAndReset("update", '\t');
 
         MoveKernel<PROBLEM_SIZE, elemCount> moveKernel;
         alpaka::exec<Acc>(queue, workdiv, moveKernel, accView, ts);
-        chrono.printAndReset("Move kernel");
+        chrono.printAndReset("move");
     }
 
     alpaka::memcpy(queue, hostBuffer, accBuffer, bufferSize);
-    chrono.printAndReset("Copy D->H");
+    chrono.printAndReset("copy D->H");
 
     return 0;
 }
