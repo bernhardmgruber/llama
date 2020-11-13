@@ -1,6 +1,7 @@
 cmake_minimum_required (VERSION 3.15)
 project(llama-alpaka-vc-nbody)
 
+find_package(Vc QUIET)
 if (NOT TARGET llama::llama)
 	find_package(llama REQUIRED)
 endif()
@@ -9,3 +10,6 @@ alpaka_add_executable(${PROJECT_NAME} nbody.cpp ../../common/alpakaHelpers.hpp .
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 target_compile_definitions(${PROJECT_NAME} PUBLIC LLAMA_FN_HOST_ACC_INLINE=ALPAKA_FN_HOST_ACC)
 target_link_libraries(${PROJECT_NAME} PRIVATE llama::llama alpaka::alpaka)
+if (Vc_FOUND)
+	target_link_libraries(${PROJECT_NAME} PRIVATE Vc::Vc)
+endif()
