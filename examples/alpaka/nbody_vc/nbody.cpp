@@ -136,16 +136,51 @@ struct UpdateKernel
 #if __has_include(<Vc/Vc>)
 #    include <Vc/Vc>
 
+template <std::size_t Elems>
+struct VecType
+{
+    using type = Vc::SimdArray<float, Elems>;
+};
+template <>
+struct VecType<1>
+{
+    using type = float;
+};
+
+namespace aaa
+{
+    LLAMA_FN_HOST_ACC_INLINE float rsqrt(float f)
+    {
+        return 1.0f / std::sqrt(f);
+    }
+} // namespace aaa
+
 template <std::size_t Elems, typename VirtualParticleI, typename VirtualParticleJ>
 LLAMA_FN_HOST_ACC_INLINE void pPInteractionVc(VirtualParticleI pi, VirtualParticleJ pj, FP ts)
 {
     // using vec = Vc::Vector<float, Vc::abi::fixed<Elems>>;
-    using vec = Vc::SimdArray<float, Elems>;
+    using vec = typename VecType<Elems>::type;
 
     // FIXME: this makes assumptions that there are always float_v::size() many elements blocked in the LLAMA view
-    auto loadVec = [&](const float& src) { return vec(&src); };
+    auto loadVec = [&](const float& src) {
+        if constexpr (std::is_same_v<vec, float>)
+            return src;
+        else
+            return vec(&src);
+    };
     auto broadcastVec = [&](const float& src) { return vec(src); };
-    auto storeVec = [&](float& dst, vec v) { v.store(&dst); };
+
+    auto storeVec = [&](float& dst, vec v) {
+        if constexpr (std::is_same_v<vec, float>)
+            dst = v;
+        else
+            v.store(&dst);
+    };
+
+    using aaa::rsqrt;
+    using std::sqrt;
+    using Vc::rsqrt;
+    using Vc::sqrt;
 
     const vec xdistance = loadVec(pi(tag::Pos{}, tag::X{})) - broadcastVec(pj(tag::Pos{}, tag::X{}));
     const vec ydistance = loadVec(pi(tag::Pos{}, tag::Y{})) - broadcastVec(pj(tag::Pos{}, tag::Y{}));
@@ -153,9 +188,9 @@ LLAMA_FN_HOST_ACC_INLINE void pPInteractionVc(VirtualParticleI pi, VirtualPartic
     const vec xdistanceSqr = xdistance * xdistance;
     const vec ydistanceSqr = ydistance * ydistance;
     const vec zdistanceSqr = zdistance * zdistance;
-    const vec distSqr = EPS2 + xdistanceSqr + ydistanceSqr + zdistanceSqr;
+    const vec distSqr = +EPS2 + xdistanceSqr + ydistanceSqr + zdistanceSqr;
     const vec distSixth = distSqr * distSqr * distSqr;
-    const vec invDistCube = ALLOW_RSQRT ? Vc::rsqrt(distSixth) : (1.0f / Vc::sqrt(distSixth));
+    const vec invDistCube = ALLOW_RSQRT ? rsqrt(distSixth) : (1.0f / sqrt(distSixth));
     const vec sts = broadcastVec(pj(tag::Mass())) * invDistCube * ts;
     storeVec(pi(tag::Vel{}, tag::X{}), xdistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::X{})));
     storeVec(pi(tag::Vel{}, tag::Y{}), ydistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::Y{})));
@@ -276,7 +311,7 @@ int main()
         if constexpr (MAPPING == 2)
             return llama::mapping::SoA{arrayDomain, Particle{}, std::true_type{}};
         if constexpr (MAPPING == 3)
-            return llama::mapping::AoSoA<std::decay_t<decltype(arrayDomain)>, Particle, elemCount>{arrayDomain};
+            return llama::mapping::AoSoA<std::decay_t<decltype(arrayDomain)>, Particle, aosoaLanes>{arrayDomain};
         if constexpr (MAPPING == 4)
             return llama::mapping::tree::Mapping{arrayDomain, llama::Tuple{}, Particle{}};
         if constexpr (MAPPING == 5)
