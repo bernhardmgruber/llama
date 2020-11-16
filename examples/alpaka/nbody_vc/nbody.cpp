@@ -55,43 +55,52 @@ namespace stdext
     }
 } // namespace stdext
 
-template <typename vec, typename VirtualParticleI, typename VirtualParticleJ>
-LLAMA_FN_HOST_ACC_INLINE void pPInteractionVc(VirtualParticleI pi, VirtualParticleJ pj, FP ts)
+// FIXME: this makes assumptions that there are always float_v::size() many elements blocked in the LLAMA view
+template <typename Vec>
+inline auto load(const float& src)
 {
-    // FIXME: this makes assumptions that there are always float_v::size() many elements blocked in the LLAMA view
-    auto loadVec = [&](const float& src) {
-        if constexpr (std::is_same_v<vec, float>)
+    if constexpr (std::is_same_v<Vec, float>)
             return src;
         else
-            return vec(&src);
-    };
-    auto broadcastVec = [&](const float& src) { return vec(src); };
+        return Vec(&src);
+}
 
-    auto storeVec = [&](float& dst, vec v) {
-        if constexpr (std::is_same_v<vec, float>)
+template <typename Vec>
+inline auto broadcast(const float& src)
+{
+    return Vec(src);
+}
+
+template <typename Vec>
+inline auto store(float& dst, Vec v)
+{
+    if constexpr (std::is_same_v<Vec, float>)
             dst = v;
         else
             v.store(&dst);
-    };
+}
 
+template <typename Vec, typename VirtualParticleI, typename VirtualParticleJ>
+LLAMA_FN_HOST_ACC_INLINE void pPInteraction(VirtualParticleI pi, VirtualParticleJ pj, FP ts)
+{
     using std::sqrt;
     using stdext::rsqrt;
     using Vc::rsqrt;
     using Vc::sqrt;
 
-    const vec xdistance = loadVec(pi(tag::Pos{}, tag::X{})) - broadcastVec(pj(tag::Pos{}, tag::X{}));
-    const vec ydistance = loadVec(pi(tag::Pos{}, tag::Y{})) - broadcastVec(pj(tag::Pos{}, tag::Y{}));
-    const vec zdistance = loadVec(pi(tag::Pos{}, tag::Z{})) - broadcastVec(pj(tag::Pos{}, tag::Z{}));
-    const vec xdistanceSqr = xdistance * xdistance;
-    const vec ydistanceSqr = ydistance * ydistance;
-    const vec zdistanceSqr = zdistance * zdistance;
-    const vec distSqr = +EPS2 + xdistanceSqr + ydistanceSqr + zdistanceSqr;
-    const vec distSixth = distSqr * distSqr * distSqr;
-    const vec invDistCube = ALLOW_RSQRT ? rsqrt(distSixth) : (1.0f / sqrt(distSixth));
-    const vec sts = broadcastVec(pj(tag::Mass())) * invDistCube * ts;
-    storeVec(pi(tag::Vel{}, tag::X{}), xdistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::X{})));
-    storeVec(pi(tag::Vel{}, tag::Y{}), ydistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::Y{})));
-    storeVec(pi(tag::Vel{}, tag::Z{}), zdistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::Z{})));
+    const Vec xdistance = load<Vec>(pi(tag::Pos{}, tag::X{})) - broadcast<Vec>(pj(tag::Pos{}, tag::X{}));
+    const Vec ydistance = load<Vec>(pi(tag::Pos{}, tag::Y{})) - broadcast<Vec>(pj(tag::Pos{}, tag::Y{}));
+    const Vec zdistance = load<Vec>(pi(tag::Pos{}, tag::Z{})) - broadcast<Vec>(pj(tag::Pos{}, tag::Z{}));
+    const Vec xdistanceSqr = xdistance * xdistance;
+    const Vec ydistanceSqr = ydistance * ydistance;
+    const Vec zdistanceSqr = zdistance * zdistance;
+    const Vec distSqr = +EPS2 + xdistanceSqr + ydistanceSqr + zdistanceSqr;
+    const Vec distSixth = distSqr * distSqr * distSqr;
+    const Vec invDistCube = ALLOW_RSQRT ? rsqrt(distSixth) : (1.0f / sqrt(distSixth));
+    const Vec sts = broadcast<Vec>(pj(tag::Mass())) * invDistCube * ts;
+    store<Vec>(pi(tag::Vel{}, tag::X{}), xdistanceSqr * sts + load<Vec>(pi(tag::Vel{}, tag::X{})));
+    store<Vec>(pi(tag::Vel{}, tag::Y{}), ydistanceSqr * sts + load<Vec>(pi(tag::Vel{}, tag::Y{})));
+    store<Vec>(pi(tag::Vel{}, tag::Z{}), zdistanceSqr * sts + load<Vec>(pi(tag::Vel{}, tag::Z{})));
 }
 
 template <typename Mapping, std::size_t Elems>
@@ -118,18 +127,20 @@ struct VecType<1>
 };
 
 template <std::size_t ProblemSize, std::size_t Elems, std::size_t BlockSize>
-struct UpdateKernelVc
+struct UpdateKernel
 {
     // makes our life easier for now
     static_assert(ProblemSize % Elems == 0);
     static_assert(ProblemSize % BlockSize == 0);
+
+    using Vec = typename VecType<Elems>::type;
 
     template <typename Acc, typename View>
     LLAMA_FN_HOST_ACC_INLINE void operator()(const Acc& acc, View particles, FP ts) const
     {
         static_assert(
             canUseVcWithMapping<typename View::Mapping, Elems>,
-            "UpdateKernelVc only works with compatible mappings like SoA or AoSoAs");
+            "UpdateKernel only works with compatible mappings like SoA or AoSoAs");
 
         auto sharedView = [&] {
             const auto sharedMapping = llama::mapping::SoA(
@@ -163,10 +174,7 @@ struct UpdateKernelVc
 
             LLAMA_INDEPENDENT_DATA
             for (auto j = std::size_t{0}; j < BlockSize; ++j)
-            {
-                using vec = typename VecType<Elems>::type;
-                pPInteractionVc<vec>(particles(ti * Elems), sharedView(j), ts);
-    }
+                pPInteraction<Vec>(particles(ti * Elems), sharedView(j), ts);
             alpaka::syncBlockThreads(acc);
         }
     }
@@ -175,16 +183,25 @@ struct UpdateKernelVc
 template <std::size_t ProblemSize, std::size_t Elems>
 struct MoveKernel
 {
+    static_assert(ProblemSize % Elems == 0);
+
+    using Vec = typename VecType<Elems>::type;
+
     template <typename Acc, typename View>
     LLAMA_FN_HOST_ACC_INLINE void operator()(const Acc& acc, View particles, FP ts) const
     {
         const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0];
-        const auto start = ti * Elems;
-        const auto end = alpaka::math::min(acc, start + Elems, ProblemSize);
+        const auto i = ti * Elems;
 
-        LLAMA_INDEPENDENT_DATA
-        for (auto i = start; i < end; ++i)
-            particles(i)(tag::Pos()) += particles(i)(tag::Vel()) * ts;
+        store<Vec>(
+            particles(i)(tag::Pos{}, tag::X{}),
+            load<Vec>(particles(i)(tag::Pos{}, tag::X{})) + load<Vec>(particles(i)(tag::Vel{}, tag::X{})) * ts);
+        store<Vec>(
+            particles(i)(tag::Pos{}, tag::Y{}),
+            load<Vec>(particles(i)(tag::Pos{}, tag::Y{})) + load<Vec>(particles(i)(tag::Vel{}, tag::Y{})) * ts);
+        store<Vec>(
+            particles(i)(tag::Pos{}, tag::Z{}),
+            load<Vec>(particles(i)(tag::Pos{}, tag::Z{})) + load<Vec>(particles(i)(tag::Vel{}, tag::Z{})) * ts);
     }
 };
 
@@ -312,7 +329,7 @@ int main()
 
     for (std::size_t s = 0; s < STEPS; ++s)
     {
-        auto updateKernel = UpdateKernelVc<PROBLEM_SIZE, elemCount, blockSize>{};
+        auto updateKernel = UpdateKernel<PROBLEM_SIZE, elemCount, blockSize>{};
         alpaka::exec<Acc>(queue, workdiv, updateKernel, accView, ts);
         chrono.printAndReset("update", '\t');
 
