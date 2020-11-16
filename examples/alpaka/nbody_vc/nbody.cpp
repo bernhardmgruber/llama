@@ -136,59 +136,61 @@ struct UpdateKernel
 #if __has_include(<Vc/Vc>)
 #    include <Vc/Vc>
 
-template <typename VirtualParticleI, typename VirtualParticleJ>
+template <std::size_t Elems, typename VirtualParticleI, typename VirtualParticleJ>
 LLAMA_FN_HOST_ACC_INLINE void pPInteractionVc(VirtualParticleI pi, VirtualParticleJ pj, FP ts)
 {
-    // FIXME: this makes assumptions that there are always float_v::size() many elements blocked in the LLAMA view
-    auto loadVec = [&](const float& src) { return Vc::float_v(&src); };
-    auto broadcastVec = [&](const float& src) { return Vc::float_v(src); };
-    auto storeVec = [&](float& dst, Vc::float_v v) { v.store(&dst); };
+    // using vec = Vc::Vector<float, Vc::abi::fixed<Elems>>;
+    using vec = Vc::SimdArray<float, Elems>;
 
-    const Vc::float_v xdistance = loadVec(pi(tag::Pos{}, tag::X{})) - broadcastVec(pj(tag::Pos{}, tag::X{}));
-    const Vc::float_v ydistance = loadVec(pi(tag::Pos{}, tag::Y{})) - broadcastVec(pj(tag::Pos{}, tag::Y{}));
-    const Vc::float_v zdistance = loadVec(pi(tag::Pos{}, tag::Z{})) - broadcastVec(pj(tag::Pos{}, tag::Z{}));
-    const Vc::float_v xdistanceSqr = xdistance * xdistance;
-    const Vc::float_v ydistanceSqr = ydistance * ydistance;
-    const Vc::float_v zdistanceSqr = zdistance * zdistance;
-    const Vc::float_v distSqr = EPS2 + xdistanceSqr + ydistanceSqr + zdistanceSqr;
-    const Vc::float_v distSixth = distSqr * distSqr * distSqr;
-    const Vc::float_v invDistCube = ALLOW_RSQRT ? Vc::rsqrt(distSixth) : (1.0f / Vc::sqrt(distSixth));
-    const Vc::float_v sts = broadcastVec(pj(tag::Mass())) * invDistCube * ts;
+    // FIXME: this makes assumptions that there are always float_v::size() many elements blocked in the LLAMA view
+    auto loadVec = [&](const float& src) { return vec(&src); };
+    auto broadcastVec = [&](const float& src) { return vec(src); };
+    auto storeVec = [&](float& dst, vec v) { v.store(&dst); };
+
+    const vec xdistance = loadVec(pi(tag::Pos{}, tag::X{})) - broadcastVec(pj(tag::Pos{}, tag::X{}));
+    const vec ydistance = loadVec(pi(tag::Pos{}, tag::Y{})) - broadcastVec(pj(tag::Pos{}, tag::Y{}));
+    const vec zdistance = loadVec(pi(tag::Pos{}, tag::Z{})) - broadcastVec(pj(tag::Pos{}, tag::Z{}));
+    const vec xdistanceSqr = xdistance * xdistance;
+    const vec ydistanceSqr = ydistance * ydistance;
+    const vec zdistanceSqr = zdistance * zdistance;
+    const vec distSqr = EPS2 + xdistanceSqr + ydistanceSqr + zdistanceSqr;
+    const vec distSixth = distSqr * distSqr * distSqr;
+    const vec invDistCube = ALLOW_RSQRT ? Vc::rsqrt(distSixth) : (1.0f / Vc::sqrt(distSixth));
+    const vec sts = broadcastVec(pj(tag::Mass())) * invDistCube * ts;
     storeVec(pi(tag::Vel{}, tag::X{}), xdistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::X{})));
     storeVec(pi(tag::Vel{}, tag::Y{}), ydistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::Y{})));
     storeVec(pi(tag::Vel{}, tag::Z{}), zdistanceSqr * sts + loadVec(pi(tag::Vel{}, tag::Z{})));
 }
 
-template <typename Mapping>
+template <typename Mapping, std::size_t Elems>
 inline constexpr auto canUseVcWithMapping = false;
 
-template <typename ArrayDomain, typename DatumDomain, typename Linearize>
-inline constexpr auto canUseVcWithMapping<llama::mapping::SoA<ArrayDomain, DatumDomain, Linearize>> = true;
+template <typename ArrayDomain, typename DatumDomain, typename Linearize, std::size_t Elems>
+inline constexpr auto canUseVcWithMapping<llama::mapping::SoA<ArrayDomain, DatumDomain, Linearize>, Elems> = true;
 
-template <typename ArrayDomain, typename DatumDomain, std::size_t Lanes, typename Linearize>
-inline constexpr auto canUseVcWithMapping<llama::mapping::AoSoA<ArrayDomain, DatumDomain, Lanes, Linearize>> = Lanes
-    >= Vc::float_v::size();
+template <typename ArrayDomain, typename DatumDomain, std::size_t Lanes, typename Linearize, std::size_t Elems>
+inline constexpr auto
+    canUseVcWithMapping<llama::mapping::AoSoA<ArrayDomain, DatumDomain, Lanes, Linearize>, Elems> = Lanes
+        >= Elems&& Lanes % Elems
+    == 0;
 
 template <std::size_t ProblemSize, std::size_t Elems>
 struct UpdateKernelVc
 {
-    static_assert(
-        Elems == Vc::float_v::size(),
-        "The alpaka element level must be the same size as the Vc vector width");
     static_assert(ProblemSize % Elems == 0);
 
     template <typename Acc, typename View>
     LLAMA_FN_HOST_ACC_INLINE void operator()(const Acc& acc, View particles, FP ts) const
     {
         static_assert(
-            canUseVcWithMapping<typename View::Mapping>,
+            canUseVcWithMapping<typename View::Mapping, Elems>,
             "UpdateKernelVc only works with compatible mappings like SoA or AoSoAs");
 
         const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u];
 
         LLAMA_INDEPENDENT_DATA
         for (auto j = std::size_t{0}; j < ProblemSize; ++j)
-            pPInteractionVc(particles(ti * Elems), particles(j), ts);
+            pPInteractionVc<Elems>(particles(ti * Elems), particles(j), ts);
     }
 };
 #endif
