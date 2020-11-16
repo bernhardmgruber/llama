@@ -205,54 +205,30 @@ struct MoveKernel
     }
 };
 
-template <typename Acc>
-struct Workdiv
-{
-    static constexpr std::size_t elements = Vc::float_v::size();
-    static constexpr std::size_t threadsPerBlock = 1;
-};
-
-#ifdef ALPAKA_ACC_GPU_CUDA_ENABLED
-template <typename Dim, typename Size>
-struct Workdiv<alpaka::AccGpuCudaRt<Dim, Size>>
-{
-    static constexpr std::size_t elements = 1;
-    static constexpr std::size_t threadsPerBlock = 256;
-};
+#if defined(ALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLED) || defined(ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED)
+static constexpr std::size_t elements = Vc::float_v::size();
+static constexpr std::size_t threadsPerBlock = 1;
+constexpr auto aosoaLanes = elements; // vectors
+#elif defined(ALPAKA_ACC_GPU_CUDA_ENABLED)
+static constexpr std::size_t elements = 1;
+static constexpr std::size_t threadsPerBlock = 256;
+constexpr auto aosoaLanes = 32; // coalesced memory access
+#else
+#    error "Unsupported backend"
 #endif
 
-#ifdef ALPAKA_ACC_CPU_B_SEQ_T_OMP2_ENABLED
-template <typename Dim, typename Size>
-struct Workdiv<alpaka::AccCpuOmp2Threads<Dim, Size>>
-{
-    // TODO: evaluate these previous settings from A. Matthes
-    static constexpr std::size_t elements = 128;
-    static constexpr std::size_t threadsPerBlock = 2;
-};
-#endif
+constexpr auto blockSize = elements * threadsPerBlock;
 
 using Dim = alpaka::DimInt<1>;
 using Size = std::size_t;
-
 using Acc = alpaka::ExampleDefaultAcc<Dim, Size>;
 // using Acc = alpaka::AccGpuCudaRt<Dim, Size>;
 // using Acc = alpaka::AccCpuSerial<Dim, Size>;
-
 using DevHost = alpaka::DevCpu;
 using DevAcc = alpaka::Dev<Acc>;
 using PltfHost = alpaka::Pltf<DevHost>;
 using PltfAcc = alpaka::Pltf<DevAcc>;
 using Queue = alpaka::Queue<DevAcc, alpaka::Blocking>;
-
-constexpr std::size_t elemCount = Workdiv<Acc>::elements;
-constexpr std::size_t threadCount = Workdiv<Acc>::threadsPerBlock;
-constexpr auto blockSize = elemCount * threadCount;
-
-#ifdef ALPAKA_ACC_GPU_CUDA_ENABLED
-constexpr auto aosoaLanes = 32; // coalesced memory access
-#else
-constexpr auto aosoaLanes = elemCount; // vectors
-#endif
 
 int main()
 {
@@ -321,19 +297,18 @@ int main()
     alpaka::memcpy(queue, accBuffer, hostBuffer, bufferSize);
     chrono.printAndReset("copy H->D");
 
-    const alpaka::Vec<Dim, Size> Elems(static_cast<Size>(elemCount));
-    const alpaka::Vec<Dim, Size> threads(static_cast<Size>(threadCount));
-    const alpaka::Vec<Dim, Size> blocks(static_cast<Size>((PROBLEM_SIZE + blockSize - 1u) / blockSize));
-
-    const auto workdiv = alpaka::WorkDivMembers<Dim, Size>{blocks, threads, Elems};
+    const auto workdiv = alpaka::WorkDivMembers<Dim, Size>{
+        alpaka::Vec<Dim, Size>{static_cast<Size>(PROBLEM_SIZE / blockSize)},
+        alpaka::Vec<Dim, Size>{static_cast<Size>(threadsPerBlock)},
+        alpaka::Vec<Dim, Size>{static_cast<Size>(elements)}};
 
     for (std::size_t s = 0; s < STEPS; ++s)
     {
-        auto updateKernel = UpdateKernel<PROBLEM_SIZE, elemCount, blockSize>{};
+        auto updateKernel = UpdateKernel<PROBLEM_SIZE, elements, blockSize>{};
         alpaka::exec<Acc>(queue, workdiv, updateKernel, accView, ts);
         chrono.printAndReset("update", '\t');
 
-        auto moveKernel = MoveKernel<PROBLEM_SIZE, elemCount>{};
+        auto moveKernel = MoveKernel<PROBLEM_SIZE, elements>{};
         alpaka::exec<Acc>(queue, workdiv, moveKernel, accView, ts);
         chrono.printAndReset("move");
     }
