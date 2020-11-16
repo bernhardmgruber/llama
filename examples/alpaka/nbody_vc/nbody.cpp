@@ -17,7 +17,6 @@
 #include <utility>
 
 constexpr auto MAPPING = 3; ///< 0 AoS, 1 SoA, 2 SoA (separate blobs), 4 AoSoA, 4 tree AoS, 5 tree SoA
-constexpr auto KERNEL = 2; ///< 0 non-caching kernel, 1 kernel with shared memory caching, 2 non-caching Vc kernel
 constexpr auto PROBLEM_SIZE = 16 * 1024; ///< total number of particles
 constexpr auto STEPS = 5; ///< number of steps to calculate
 constexpr auto ALLOW_RSQRT = true; // rsqrt can be way faster, but less accurate
@@ -48,117 +47,17 @@ using Particle = llama::DS<
     llama::DE<tag::Mass, FP>>;
 // clang-format on
 
-template <typename Acc, typename VirtualParticleI, typename VirtualParticleJ>
-LLAMA_FN_HOST_ACC_INLINE void pPInteraction(const Acc& acc, VirtualParticleI pi, VirtualParticleJ pj, FP ts)
-{
-    auto dist = pi(tag::Pos()) - pj(tag::Pos());
-    dist *= dist;
-    const FP distSqr = EPS2 + dist(tag::X()) + dist(tag::Y()) + dist(tag::Z());
-    const FP distSixth = distSqr * distSqr * distSqr;
-    const FP invDistCube = ALLOW_RSQRT ? alpaka::math::rsqrt(acc, distSixth) : (1.0f / std::sqrt(distSixth));
-    const FP sts = pj(tag::Mass()) * invDistCube * ts;
-    pi(tag::Vel()) += dist * sts;
-}
-
-template <std::size_t ProblemSize, std::size_t Elems, std::size_t BlockSize>
-struct UpdateKernelSM
-{
-    template <typename Acc, typename View>
-    LLAMA_FN_HOST_ACC_INLINE void operator()(const Acc& acc, View particles, FP ts) const
-    {
-        auto sharedView = [&] {
-            const auto sharedMapping = llama::mapping::SoA(
-                typename View::ArrayDomain{BlockSize},
-                typename View::DatumDomain{}); // bug: nvcc 11.1 cannot have {} to call ctor
-
-            // if there is only 1 thread per block, avoid using shared
-            // memory
-            if constexpr (BlockSize / Elems == 1)
-                return llama::allocViewStack<View::ArrayDomain::rank, typename View::DatumDomain>();
-            else
-            {
-                constexpr auto sharedMemSize = llama::sizeOf<typename View::DatumDomain> * BlockSize;
-                auto& sharedMem = alpaka::declareSharedVar<std::byte[sharedMemSize], __COUNTER__>(acc);
-                return llama::View{
-                    sharedMapping,
-                    llama::Array<std::byte*, 1>{
-                        &sharedMem[0]}}; // bug: nvcc 11.1 needs explicit template args for llama::Array
-            }
-        }();
-
-        const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u];
-        const auto tbi = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0];
-
-        const auto start = ti * Elems;
-        const auto end = alpaka::math::min(acc, start + Elems, ProblemSize);
-        LLAMA_INDEPENDENT_DATA
-        for (std::size_t b = 0; b < (ProblemSize + BlockSize - 1u) / BlockSize; ++b)
-        {
-            const auto start2 = b * BlockSize;
-            const auto end2 = alpaka::math::min(acc, start2 + BlockSize, ProblemSize) - start2;
-
-            LLAMA_INDEPENDENT_DATA
-            for (auto pos2 = decltype(end2)(0); pos2 + ti < end2; pos2 += BlockSize / Elems)
-                sharedView(pos2 + tbi) = particles(start2 + pos2 + tbi);
-            alpaka::syncBlockThreads(acc);
-
-            LLAMA_INDEPENDENT_DATA
-            for (auto pos2 = decltype(end2)(0); pos2 < end2; ++pos2)
-            {
-                LLAMA_INDEPENDENT_DATA
-                for (auto i = start; i < end; ++i)
-                    pPInteraction(acc, particles(i), sharedView(pos2), ts);
-            }
-            alpaka::syncBlockThreads(acc);
-        }
-    }
-};
-
-template <std::size_t ProblemSize, std::size_t Elems>
-struct UpdateKernel
-{
-    template <typename Acc, typename View>
-    LLAMA_FN_HOST_ACC_INLINE void operator()(const Acc& acc, View particles, FP ts) const
-    {
-        const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u];
-        const auto start = ti * Elems;
-        const auto end = alpaka::math::min(acc, start + Elems, ProblemSize);
-
-        LLAMA_INDEPENDENT_DATA
-        for (auto j = 0; j < ProblemSize; ++j)
-        {
-            LLAMA_INDEPENDENT_DATA
-            for (auto i = start; i < end; ++i)
-                pPInteraction(acc, particles(i), particles(j), ts);
-        }
-    }
-};
-
-template <std::size_t Elems>
-struct VecType
-{
-    using type = Vc::SimdArray<float, Elems>;
-};
-template <>
-struct VecType<1>
-{
-    using type = float;
-};
-
-namespace aaa
+namespace stdext
 {
     LLAMA_FN_HOST_ACC_INLINE float rsqrt(float f)
     {
         return 1.0f / std::sqrt(f);
     }
-} // namespace aaa
+} // namespace stdext
 
-template <std::size_t Elems, typename VirtualParticleI, typename VirtualParticleJ>
+template <typename vec, typename VirtualParticleI, typename VirtualParticleJ>
 LLAMA_FN_HOST_ACC_INLINE void pPInteractionVc(VirtualParticleI pi, VirtualParticleJ pj, FP ts)
 {
-    // using vec = Vc::Vector<float, Vc::abi::fixed<Elems>>;
-    using vec = typename VecType<Elems>::type;
-
     // FIXME: this makes assumptions that there are always float_v::size() many elements blocked in the LLAMA view
     auto loadVec = [&](const float& src) {
         if constexpr (std::is_same_v<vec, float>)
@@ -175,8 +74,8 @@ LLAMA_FN_HOST_ACC_INLINE void pPInteractionVc(VirtualParticleI pi, VirtualPartic
             v.store(&dst);
     };
 
-    using aaa::rsqrt;
     using std::sqrt;
+    using stdext::rsqrt;
     using Vc::rsqrt;
     using Vc::sqrt;
 
@@ -207,10 +106,23 @@ inline constexpr auto
         >= Elems&& Lanes % Elems
     == 0;
 
-template <std::size_t ProblemSize, std::size_t Elems>
+template <std::size_t Elems>
+struct VecType
+{
+    using type = Vc::SimdArray<float, Elems>;
+};
+template <>
+struct VecType<1>
+{
+    using type = float;
+};
+
+template <std::size_t ProblemSize, std::size_t Elems, std::size_t BlockSize>
 struct UpdateKernelVc
 {
+    // makes our life easier for now
     static_assert(ProblemSize % Elems == 0);
+    static_assert(ProblemSize % BlockSize == 0);
 
     template <typename Acc, typename View>
     LLAMA_FN_HOST_ACC_INLINE void operator()(const Acc& acc, View particles, FP ts) const
@@ -219,11 +131,44 @@ struct UpdateKernelVc
             canUseVcWithMapping<typename View::Mapping, Elems>,
             "UpdateKernelVc only works with compatible mappings like SoA or AoSoAs");
 
-        const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u];
+        auto sharedView = [&] {
+            const auto sharedMapping = llama::mapping::SoA(
+                typename View::ArrayDomain{BlockSize},
+                typename View::DatumDomain{}); // bug: nvcc 11.1 cannot have {} to call ctor
+
+            // if there is only 1 thread per block, avoid using shared memory
+            if constexpr (BlockSize / Elems == 1)
+                return llama::allocViewStack<View::ArrayDomain::rank, typename View::DatumDomain>();
+            else
+            {
+                constexpr auto sharedMemSize = llama::sizeOf<typename View::DatumDomain> * BlockSize;
+                auto& sharedMem = alpaka::declareSharedVar<std::byte[sharedMemSize], __COUNTER__>(acc);
+                return llama::View{
+                    sharedMapping,
+                    llama::Array<std::byte*, 1>{
+                        &sharedMem[0]}}; // bug: nvcc 11.1 needs explicit template args for llama::Array
+            }
+        }();
+
+        const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0];
+        const auto tbi = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0];
 
         LLAMA_INDEPENDENT_DATA
-        for (auto j = std::size_t{0}; j < ProblemSize; ++j)
-            pPInteractionVc<Elems>(particles(ti * Elems), particles(j), ts);
+        for (std::size_t blockOffset = 0; blockOffset < ProblemSize; blockOffset += BlockSize)
+        {
+            LLAMA_INDEPENDENT_DATA
+            for (auto j = tbi; j < BlockSize; j += BlockSize / Elems)
+                sharedView(j) = particles(blockOffset + j);
+            alpaka::syncBlockThreads(acc);
+
+            LLAMA_INDEPENDENT_DATA
+            for (auto j = std::size_t{0}; j < BlockSize; ++j)
+            {
+                using vec = typename VecType<Elems>::type;
+                pPInteractionVc<vec>(particles(ti * Elems), sharedView(j), ts);
+    }
+            alpaka::syncBlockThreads(acc);
+        }
     }
 };
 
@@ -367,18 +312,11 @@ int main()
 
     for (std::size_t s = 0; s < STEPS; ++s)
     {
-        auto updateKernel = [&] {
-            if constexpr (KERNEL == 0)
-                return UpdateKernelSM<PROBLEM_SIZE, elemCount, blockSize>{};
-            else if constexpr (KERNEL == 1)
-                return UpdateKernel<PROBLEM_SIZE, elemCount>{};
-            else if constexpr (KERNEL == 2)
-                return UpdateKernelVc<PROBLEM_SIZE, elemCount>{};
-        }();
+        auto updateKernel = UpdateKernelVc<PROBLEM_SIZE, elemCount, blockSize>{};
         alpaka::exec<Acc>(queue, workdiv, updateKernel, accView, ts);
         chrono.printAndReset("update", '\t');
 
-        MoveKernel<PROBLEM_SIZE, elemCount> moveKernel;
+        auto moveKernel = MoveKernel<PROBLEM_SIZE, elemCount>{};
         alpaka::exec<Acc>(queue, workdiv, moveKernel, accView, ts);
         chrono.printAndReset("move");
     }
