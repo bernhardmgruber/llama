@@ -293,6 +293,12 @@ constexpr std::size_t elemCount = Workdiv<Acc>::elements;
 constexpr std::size_t threadCount = Workdiv<Acc>::threadsPerBlock;
 constexpr auto blockSize = elemCount * threadCount;
 
+#ifdef ALPAKA_ACC_GPU_CUDA_ENABLED
+constexpr auto aosoaLanes = 32; // coalesced memory access
+#else
+constexpr auto aosoaLanes = elemCount; // vectors
+#endif
+
 int main()
 {
     const DevAcc devAcc(alpaka::getDevByIdx<PltfAcc>(0u));
