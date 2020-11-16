@@ -8,6 +8,7 @@
 
 #include "../../common/Stopwatch.hpp"
 
+#include <Vc/Vc>
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExampleDefaultAcc.hpp>
 #include <iostream>
@@ -133,9 +134,6 @@ struct UpdateKernel
     }
 };
 
-#if __has_include(<Vc/Vc>)
-#    include <Vc/Vc>
-
 template <std::size_t Elems>
 struct VecType
 {
@@ -228,7 +226,6 @@ struct UpdateKernelVc
             pPInteractionVc<Elems>(particles(ti * Elems), particles(j), ts);
     }
 };
-#endif
 
 template <std::size_t ProblemSize, std::size_t Elems>
 struct MoveKernel
@@ -249,11 +246,7 @@ struct MoveKernel
 template <typename Acc>
 struct Workdiv
 {
-#if __has_include(<Vc/Vc>)
     static constexpr std::size_t elements = Vc::float_v::size();
-#else
-    static constexpr std::size_t elements = 8;
-#endif
     static constexpr std::size_t threadsPerBlock = 1;
 };
 
@@ -379,10 +372,8 @@ int main()
                 return UpdateKernelSM<PROBLEM_SIZE, elemCount, blockSize>{};
             else if constexpr (KERNEL == 1)
                 return UpdateKernel<PROBLEM_SIZE, elemCount>{};
-#if __has_include(<Vc/Vc>)
             else if constexpr (KERNEL == 2)
                 return UpdateKernelVc<PROBLEM_SIZE, elemCount>{};
-#endif
         }();
         alpaka::exec<Acc>(queue, workdiv, updateKernel, accView, ts);
         chrono.printAndReset("update", '\t');
