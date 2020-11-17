@@ -6,17 +6,18 @@
 
 namespace llama::mapping
 {
-    /// Array of struct of arrays mapping. Used to create a \ref View via \ref
-    /// allocView.
-    /// \tparam Lanes The size of the inner arrays of this array of struct of
-    /// arrays.
-    /// \tparam LinearizeArrayDomainFunctor Defines how the
-    /// user domain should be mapped into linear numbers and how big the linear
-    /// domain gets.
+    /// Array of struct of arrays mapping. Used to create a \ref View via \ref allocView.
+    /// \tparam Lanes The size of the inner arrays of this array of struct of arrays.
+    /// \tparam BlockAccessOnly If true, the mapping will return the same reference to the first lane of a block for
+    /// all elements mapped into the same block. This simplifies the mapping function in case the AoSoA mapping is used
+    /// in conjunction with a vectorization library.
+    /// \tparam LinearizeArrayDomainFunctor Defines how the user domain should be mapped into linear numbers and how big
+    /// the linear domain gets.
     template <
         typename T_ArrayDomain,
         typename T_DatumDomain,
         std::size_t Lanes,
+        bool BlockAccessOnly = false,
         typename LinearizeArrayDomainFunctor = LinearizeArrayDomainCpp>
     struct AoSoA
     {
@@ -40,20 +41,26 @@ namespace llama::mapping
         {
             const auto flatArrayIndex = LinearizeArrayDomainFunctor{}(coord, arrayDomainSize);
             const auto blockIndex = flatArrayIndex / Lanes;
-            const auto laneIndex = flatArrayIndex % Lanes;
-            const auto offset = (sizeOf<DatumDomain> * Lanes) * blockIndex
-                + offsetOf<DatumDomain, DatumCoord<DatumDomainCoord...>> * Lanes
-                + sizeof(GetType<DatumDomain, DatumCoord<DatumDomainCoord...>>) * laneIndex;
+            auto offset = (sizeOf<DatumDomain> * Lanes) * blockIndex
+                + offsetOf<DatumDomain, DatumCoord<DatumDomainCoord...>> * Lanes;
+            if constexpr (!BlockAccessOnly)
+            {
+                const auto laneIndex = flatArrayIndex % Lanes;
+                offset += sizeof(GetType<DatumDomain, DatumCoord<DatumDomainCoord...>>) * laneIndex;
+            }
             return {0, offset};
         }
 
         ArrayDomain arrayDomainSize;
     };
 
-    template <std::size_t Lanes, typename LinearizeArrayDomainFunctor = LinearizeArrayDomainCpp>
+    template <
+        std::size_t Lanes,
+        bool BlockAccessOnly = false,
+        typename LinearizeArrayDomainFunctor = LinearizeArrayDomainCpp>
     struct PreconfiguredAoSoA
     {
         template <typename ArrayDomain, typename DatumDomain>
-        using type = AoSoA<ArrayDomain, DatumDomain, Lanes, LinearizeArrayDomainFunctor>;
+        using type = AoSoA<ArrayDomain, DatumDomain, Lanes, BlockAccessOnly, LinearizeArrayDomainFunctor>;
     };
 } // namespace llama::mapping

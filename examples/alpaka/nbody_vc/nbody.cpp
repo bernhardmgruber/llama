@@ -109,11 +109,16 @@ inline constexpr auto canUseVcWithMapping = false;
 template <typename ArrayDomain, typename DatumDomain, typename Linearize, std::size_t Elems>
 inline constexpr auto canUseVcWithMapping<llama::mapping::SoA<ArrayDomain, DatumDomain, Linearize>, Elems> = true;
 
-template <typename ArrayDomain, typename DatumDomain, std::size_t Lanes, typename Linearize, std::size_t Elems>
-inline constexpr auto
-    canUseVcWithMapping<llama::mapping::AoSoA<ArrayDomain, DatumDomain, Lanes, Linearize>, Elems> = Lanes
-        >= Elems&& Lanes % Elems
-    == 0;
+template <
+    typename ArrayDomain,
+    typename DatumDomain,
+    std::size_t Lanes,
+    bool BlockAccessOnly,
+    typename Linearize,
+    std::size_t Elems>
+inline constexpr auto canUseVcWithMapping<
+    llama::mapping::AoSoA<ArrayDomain, DatumDomain, Lanes, BlockAccessOnly, Linearize>,
+    Elems> = Lanes >= Elems&& Lanes % Elems == 0;
 
 template <std::size_t Elems>
 struct VecType
@@ -143,6 +148,8 @@ struct UpdateKernel
             "UpdateKernel only works with compatible mappings like SoA or AoSoAs");
 
         auto sharedView = [&] {
+            // TODO: we could optimize here, since pPInteraction only needs position and mass, no velocity. the mapping
+            // could discard these properties
             const auto sharedMapping
                 = llama::mapping::SoA(typename View::ArrayDomain{BlockSize}, typename View::DatumDomain{});
 
@@ -244,7 +251,8 @@ int main()
         if constexpr (MAPPING == 2)
             return llama::mapping::SoA{arrayDomain, Particle{}, std::true_type{}};
         if constexpr (MAPPING == 3)
-            return llama::mapping::AoSoA<std::decay_t<decltype(arrayDomain)>, Particle, aosoaLanes>{arrayDomain};
+            return llama::mapping::
+                AoSoA<std::decay_t<decltype(arrayDomain)>, Particle, aosoaLanes, aosoaLanes == elements>{arrayDomain};
         if constexpr (MAPPING == 4)
             return llama::mapping::tree::Mapping{arrayDomain, llama::Tuple{}, Particle{}};
         if constexpr (MAPPING == 5)

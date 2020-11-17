@@ -82,16 +82,20 @@ template <
     typename ArrayDomain,
     typename DatumDomain,
     std::size_t LanesSrc,
+    bool LaneAccessOnlySrc,
     typename BlobType1,
     std::size_t LanesDst,
+    bool LaneAccessOnlyDst,
     typename BlobType2,
     typename Ex = std::execution::sequenced_policy>
 void aosoa_copy(
     const llama::View<
-        llama::mapping::AoSoA<ArrayDomain, DatumDomain, LanesSrc, llama::mapping::LinearizeArrayDomainCpp>,
+        llama::mapping::
+            AoSoA<ArrayDomain, DatumDomain, LanesSrc, LaneAccessOnlySrc, llama::mapping::LinearizeArrayDomainCpp>,
         BlobType1>& srcView,
     llama::View<
-        llama::mapping::AoSoA<ArrayDomain, DatumDomain, LanesDst, llama::mapping::LinearizeArrayDomainCpp>,
+        llama::mapping::
+            AoSoA<ArrayDomain, DatumDomain, LanesDst, LaneAccessOnlyDst, llama::mapping::LinearizeArrayDomainCpp>,
         BlobType2>& dstView,
     Ex ex = {})
 {
