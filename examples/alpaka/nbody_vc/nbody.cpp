@@ -73,8 +73,8 @@ template <typename Vec>
 inline auto load(const FP& src)
 {
     if constexpr (std::is_same_v<Vec, FP>)
-            return src;
-        else
+        return src;
+    else
         return Vec(&src);
 }
 
@@ -88,9 +88,9 @@ template <typename Vec>
 inline auto store(FP& dst, Vec v)
 {
     if constexpr (std::is_same_v<Vec, FP>)
-            dst = v;
-        else
-            v.store(&dst);
+        dst = v;
+    else
+        v.store(&dst);
 }
 
 template <typename Vec, typename VirtualParticleI, typename VirtualParticleJ>
@@ -254,7 +254,7 @@ void run(std::ostream& plotFile)
     Queue queue(devAcc);
 
     auto mapping = [] {
-    const auto arrayDomain = llama::ArrayDomain{PROBLEM_SIZE};
+        const auto arrayDomain = llama::ArrayDomain{PROBLEM_SIZE};
         if constexpr (Mapping == 0)
             return llama::mapping::AoS{arrayDomain, Particle{}};
         if constexpr (Mapping == 1)
