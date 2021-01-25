@@ -245,6 +245,7 @@ void run(std::ostream& plotFile)
             return "SoA";
         if (m == 2)
             return "AoSoA" + std::to_string(AOSOA_LANES);
+        std::abort();
     };
     const auto title = "GM " + mappingName(Mapping) + " SM " + mappingName(MappingSM);
     std::cout << '\n' << title << '\n';
