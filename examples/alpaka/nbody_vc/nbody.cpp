@@ -74,7 +74,7 @@ namespace stdext
 
 // FIXME: this makes assumptions that there are always float_v::size() many values blocked in the LLAMA view
 template <typename Vec>
-inline auto load(const FP& src)
+LLAMA_FN_HOST_ACC_INLINE auto load(const FP& src)
 {
     if constexpr (std::is_same_v<Vec, FP>)
         return src;
@@ -83,13 +83,13 @@ inline auto load(const FP& src)
 }
 
 template <typename Vec>
-inline auto broadcast(const FP& src)
+LLAMA_FN_HOST_ACC_INLINE auto broadcast(const FP& src)
 {
     return Vec(src);
 }
 
 template <typename Vec>
-inline auto store(FP& dst, Vec v)
+LLAMA_FN_HOST_ACC_INLINE auto store(FP& dst, Vec v)
 {
     if constexpr (std::is_same_v<Vec, FP>)
         dst = v;
