@@ -1,6 +1,5 @@
 #include "../../common/Stopwatch.hpp"
 
-#include <Vc/Vc>
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExampleDefaultAcc.hpp>
 #include <fstream>
@@ -20,6 +19,11 @@ constexpr auto TIMESTEP = FP{0.0001};
 constexpr auto ALLOW_RSQRT = true; // rsqrt can be way faster, but less accurate
 
 #if defined(ALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLED) || defined(ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED)
+#    if defined(ALPAKA_ACC_GPU_CUDA_ENABLED)
+#        error Cannot enable CUDA together with other backends, sorry :/
+#    endif
+// nvcc fails to compile Vc headers even if nothing is used from there, so we need to conditionally include it
+#    include <Vc/Vc>
 constexpr auto DESIRED_ELEMENTS_PER_THREAD = Vc::float_v::size();
 constexpr auto THREADS_PER_BLOCK = 1;
 constexpr auto AOSOA_LANES = DESIRED_ELEMENTS_PER_THREAD; // vectors
@@ -98,8 +102,10 @@ LLAMA_FN_HOST_ACC_INLINE void pPInteraction(VirtualParticleI pi, VirtualParticle
 {
     using std::sqrt;
     using stdext::rsqrt;
+#ifndef ALPAKA_ACC_GPU_CUDA_ENABLED
     using Vc::rsqrt;
     using Vc::sqrt;
+#endif
 
     const Vec xdistance = load<Vec>(pi(tag::Pos{}, tag::X{})) - broadcast<Vec>(pj(tag::Pos{}, tag::X{}));
     const Vec ydistance = load<Vec>(pi(tag::Pos{}, tag::Y{})) - broadcast<Vec>(pj(tag::Pos{}, tag::Y{}));
@@ -119,7 +125,9 @@ LLAMA_FN_HOST_ACC_INLINE void pPInteraction(VirtualParticleI pi, VirtualParticle
 template <std::size_t Elems>
 struct VecType
 {
+#ifndef ALPAKA_ACC_GPU_CUDA_ENABLED
     using type = Vc::SimdArray<FP, Elems>;
+#endif
 };
 template <>
 struct VecType<1>
