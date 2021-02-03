@@ -34,8 +34,8 @@ namespace
     using PrepTriangle = llama::DS<llama::DE<Vertex0, Vec>, llama::DE<Edge1, Vec>, llama::DE<Edge2, Vec>>;
 
     using ArrayDomain = llama::ArrayDomain<1>;
-    // using Mapping = llama::mapping::AoS<ArrayDomain, PrepTriangle>;
-    using Mapping = llama::mapping::SoA<ArrayDomain, PrepTriangle, std::true_type>;
+    using Mapping = llama::mapping::AoS<ArrayDomain, PrepTriangle>;
+    // using Mapping = llama::mapping::SoA<ArrayDomain, PrepTriangle, std::true_type>;
     // using Mapping = llama::mapping::AoSoA<ArrayDomain, PrepTriangle, 8>;
     using TriangleView = decltype(llama::allocView(Mapping{llama::ArrayDomain{0}}));
 
@@ -153,6 +153,21 @@ namespace
 
         std::array<F, 3> values = {{0, 0, 0}};
     };
+} // namespace
+
+template <typename T>
+struct std::tuple_size<Vector<T>>
+{
+    static constexpr auto value = 3;
+};
+
+namespace
+{
+    template <std::size_t I, typename T>
+    auto get(const Vector<T>& v)
+    {
+        return v[I];
+    }
 
     template <typename F>
     inline auto dot(const Vector<F>& a, const Vector<F>& b) -> F
@@ -235,6 +250,26 @@ namespace
             return cross(edge1, edge2).normalized();
         }
     };
+} // namespace
+
+template <>
+struct std::tuple_size<PreparedTriangle>
+{
+    static constexpr auto value = 3;
+};
+
+namespace
+{
+    template <std::size_t I>
+    const auto& get(const PreparedTriangle& pt)
+    {
+        if constexpr (I == 0)
+            return pt.vertex0;
+        if constexpr (I == 1)
+            return pt.edge1;
+        if constexpr (I == 2)
+            return pt.edge2;
+    }
 
     inline auto prepare(Triangle t) -> PreparedTriangle
     {
@@ -610,8 +645,14 @@ namespace
 
         struct Objects
         {
-            std::vector<PreparedTriangle> triangles;
+            // std::vector<PreparedTriangle> triangles;
+            int triangleCount = 0;
+            int triangleCapacity = 32;
+            decltype(llama::allocView(Mapping{llama::ArrayDomain{32}})) triangles
+                = llama::allocView(Mapping{llama::ArrayDomain{32}});
             std::vector<Sphere> spheres;
+
+            Objects() noexcept = default;
         };
         using Children = std::array<std::unique_ptr<OctreeNode>, 8>;
         std::variant<Objects, Children> content;
@@ -659,10 +700,29 @@ namespace
                 }
                 else
                 {
+                    auto& o = objects();
                     if constexpr (std::is_same_v<T, PreparedTriangle>)
-                        objects().triangles.push_back(object);
+                    {
+                        const auto capacity = o.triangles.mapping.arrayDomainSize[0];
+                        if (o.triangleCount >= capacity)
+                        {
+                            // reallocate and copy data over
+                            // TODO: super hacky and we need a proper llama::copy()
+                            const auto newCapacity = capacity + capacity / 2;
+                            auto newView = llama::allocView(Mapping{llama::ArrayDomain{newCapacity}});
+                            for (auto i = 0; i < newView.mapping.blobCount; i++)
+                            {
+                                std::memcpy(
+                                    &newView.storageBlobs[i][0],
+                                    &o.triangles.storageBlobs[i][0],
+                                    o.triangles.mapping.getBlobSize(i));
+                            }
+                            o.triangles = std::move(newView);
+                        }
+                        o.triangles[o.triangleCount++].store(object);
+                    }
                     else
-                        objects().spheres.push_back(object);
+                        o.spheres.push_back(object);
                 }
             }
         }
@@ -674,7 +734,7 @@ namespace
         inline auto shouldSplit(int depth) const -> bool
         {
             auto& objects = std::get<Objects>(content);
-            return depth < maxDepth && objects.triangles.size() >= maxTrianglesPerNode;
+            return depth < maxDepth && objects.triangleCount >= maxTrianglesPerNode;
         }
 
         inline void split(int depth)
@@ -702,8 +762,8 @@ namespace
 
             for (const auto& s : objects.spheres)
                 addObject(s, depth);
-            for (const auto& t : objects.triangles)
-                addObject(t, depth);
+            for (auto i : llama::ArrayDomainIndexRange{objects.triangles.mapping.arrayDomainSize})
+                addObject(objects.triangles[i].loadAs<PreparedTriangle>(), depth);
         }
     };
 
@@ -730,8 +790,9 @@ namespace
                 if (const auto hit = intersect(ray, sphere);
                     hit.distance != noHit && hit.distance < nearestHit.distance)
                     nearestHit = hit;
-            for (const auto& triangle : objects.triangles)
-                if (const auto hit = intersect(ray, triangle);
+
+            for (auto i : llama::ArrayDomainIndexRange{objects.triangles.mapping.arrayDomainSize})
+                if (const auto hit = intersect(ray, objects.triangles[i].loadAs<PreparedTriangle>());
                     hit.distance != noHit && hit.distance < nearestHit.distance)
                     nearestHit = hit;
         }
@@ -956,7 +1017,7 @@ namespace
         visitNodes(scene.tree, [&](const OctreeNode& node) {
             nodeCount++;
             if (!node.hasChildren())
-                triangleCount += node.objects().triangles.size();
+                triangleCount += node.objects().triangleCount;
         });
         std::cout << "Tree stores " << triangleCount << " triangles (" << (triangleCount * sizeof(Triangle)) / 1024
                   << "KiB) in " << nodeCount << " nodes (" << (nodeCount * sizeof(OctreeNode)) / 1024 << "KiB) \n";
