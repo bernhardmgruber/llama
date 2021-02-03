@@ -791,7 +791,9 @@ namespace
                     hit.distance != noHit && hit.distance < nearestHit.distance)
                     nearestHit = hit;
 
-            for (auto i : llama::ArrayDomainIndexRange{objects.triangles.mapping.arrayDomainSize})
+            // TODO: llama::ArrayDomainIndexRange incurs a huge performance hit, optimize it
+            // for (auto i : llama::ArrayDomainIndexRange{objects.triangles.mapping.arrayDomainSize})
+            for (auto i = 0; i < objects.triangles.mapping.arrayDomainSize[0]; i++)
                 if (const auto hit = intersect(ray, objects.triangles[i].loadAs<PreparedTriangle>());
                     hit.distance != noHit && hit.distance < nearestHit.distance)
                     nearestHit = hit;
