@@ -142,6 +142,11 @@ namespace
             return {scalar / v[0], scalar / v[1], scalar / v[2]};
         }
 
+        friend inline auto operator/(const Vector& v, F scalar) -> Vector
+        {
+            return {v[0] / scalar, v[1] / scalar, v[2] / scalar};
+        }
+
         friend inline auto operator>>(std::istream& is, Vector& v) -> std::istream&
         {
             for (int i = 0; i < 3; i++)
@@ -811,6 +816,50 @@ namespace
         return r;
     }
 
+    auto toFloatColor(Image::Pixel p)
+    {
+        return VectorF{p[0] / 255.0f, p[1] / 255.0f, p[2] / 255.0f};
+    };
+
+    auto toInt8Color(VectorF v)
+    {
+        Image::Pixel p;
+        for (int i = 0; i < 3; i++)
+            p[i] = static_cast<unsigned char>(v[i] * 255);
+        return p;
+    }
+
+    struct Mipmap
+    {
+        Mipmap(Image image)
+        {
+            lods.push_back(std::move(image));
+            while (true)
+            {
+                const auto& last = lods.back();
+                const auto lw = last.width();
+                const auto lh = last.height();
+                if (lw == 1 && lh == 1)
+                    break;
+                assert(lw % 2 == 0 && lh % 2 == 0);
+                Image next(lw / 2, lh / 2);
+                for (auto y = 0; y < lh / 2; y++)
+                {
+                    for (auto x = 0; x < lw / 2; x++)
+                    {
+                        next(x, y) = toInt8Color(
+                            (toFloatColor(last(x * 2, y * 2)) + toFloatColor(last(x * 2 + 1, y * 2))
+                             + toFloatColor(last(x * 2, y * 2 + 1)) + toFloatColor(last(x * 2 + 1, y * 2 + 1)))
+                            / 4.0f);
+                    }
+                }
+                lods.push_back(std::move(next));
+            }
+        }
+
+        std::vector<Image> lods;
+    };
+
     auto tex2D(const Image& tex, float u, float v) -> Image::Pixel
     {
         // texture coordinate behavior is repeat
@@ -822,7 +871,6 @@ namespace
             return std::clamp(normalizedCoord * maxIndex, 0.0f, maxIndex);
         };
 
-        auto toVec = [](Image::Pixel p) { return VectorF{p[0] / 255.0f, p[1] / 255.0f, p[2] / 255.0f}; };
         const float x = texCoordToTexelCoord(u, tex.width());
         const float y = texCoordToTexelCoord(v, tex.height());
 
@@ -836,12 +884,9 @@ namespace
         const float y0 = std::floor(y);
         const float y1 = std::ceil(y);
         const float yFrac = y - static_cast<int>(y);
-        const auto color = (toVec(tex(x0, y0)) * (1 - xFrac) + toVec(tex(x1, y0)) * xFrac) * (1 - yFrac)
-            + (toVec(tex(x0, y1)) * (1 - xFrac) + toVec(tex(x1, y1)) * xFrac) * yFrac;
-        Image::Pixel rgb;
-        for (int i = 0; i < 3; i++)
-            rgb[i] = static_cast<unsigned char>(color[i] * 255);
-        return rgb;
+        const auto color = (toFloatColor(tex(x0, y0)) * (1 - xFrac) + toFloatColor(tex(x1, y0)) * xFrac) * (1 - yFrac)
+            + (toFloatColor(tex(x0, y1)) * (1 - xFrac) + toFloatColor(tex(x1, y1)) * xFrac) * yFrac;
+        return toInt8Color(color);
     }
 
     inline auto colorByTexture(const std::vector<Image>& textures, Intersection hit) -> Image::Pixel
