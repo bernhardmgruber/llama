@@ -175,6 +175,8 @@ struct UpdateKernel
         const auto ti = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0];
         const auto tbi = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0];
 
+        llama::One<Particle> pi; // TODO: we could optimize here, because only velocity is ever updated
+        pi = particles(ti * Elems);
         LLAMA_INDEPENDENT_DATA
         for (std::size_t blockOffset = 0; blockOffset < ProblemSize; blockOffset += BlockSize)
         {
@@ -185,9 +187,10 @@ struct UpdateKernel
 
             LLAMA_INDEPENDENT_DATA
             for (auto j = std::size_t{0}; j < BlockSize; ++j)
-                pPInteraction<Vec>(particles(ti * Elems), sharedView(j));
+                pPInteraction<Vec>(pi, sharedView(j));
             alpaka::syncBlockThreads(acc);
         }
+        particles(ti * Elems) = pi;
     }
 };
 
