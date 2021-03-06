@@ -318,7 +318,7 @@ void run(std::ostream& plotFile)
         : 1;
 
     const auto workdiv = alpaka::WorkDivMembers<Dim, Size>{
-        alpaka::Vec<Dim, Size>{static_cast<Size>(PROBLEM_SIZE / THREADS_PER_BLOCK)},
+        alpaka::Vec<Dim, Size>{static_cast<Size>(PROBLEM_SIZE / (THREADS_PER_BLOCK * Elements))},
         alpaka::Vec<Dim, Size>{static_cast<Size>(THREADS_PER_BLOCK)},
         alpaka::Vec<Dim, Size>{static_cast<Size>(Elements)}};
 
