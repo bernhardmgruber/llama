@@ -58,6 +58,17 @@ namespace llama
     template <typename... Leaves>
     using DS = DatumStruct<Leaves...>;
 
+    template <typename Type>
+    struct DynamicArray
+    {
+    };
+
+    template <typename T>
+    inline constexpr auto isDynamicArray = false;
+
+    template <typename Type>
+    inline constexpr auto isDynamicArray<DynamicArray<Type>> = true;
+
     // FIXME: the documented functionality currently only works through llama::DE, because the Type is not expanded in
     // case of arrays
     /// Datum domain tree node which may either be a leaf or refer to a child
@@ -93,6 +104,12 @@ namespace llama
     {
         using type = decltype(internal::makeDatumArray<typename MakeDatumElementType<ChildType>::type>(
             std::make_index_sequence<Count>{}));
+    };
+
+    template <typename ChildType>
+    struct MakeDatumElementType<ChildType[]>
+    {
+        using type = DynamicArray<ChildType>;
     };
 
     /// Shortcut alias for \ref DatumElement.
@@ -232,6 +249,15 @@ namespace llama
         struct GetTypeImpl<DatumStruct<Children...>, DatumCoord<HeadCoord, TailCoords...>>
         {
             using ChildType = GetDatumElementType<boost::mp11::mp_at_c<DatumStruct<Children...>, HeadCoord>>;
+            using type = typename GetTypeImpl<ChildType, DatumCoord<TailCoords...>>::type;
+        };
+
+        template <typename ChildType, std::size_t HeadCoord, std::size_t... TailCoords>
+        struct GetTypeImpl<DynamicArray<ChildType>, DatumCoord<HeadCoord, TailCoords...>>
+        {
+            static_assert(
+                HeadCoord == dynamic,
+                "The llama::DatumCoord value at a llama::DynamicArray must be llama::dynamic");
             using type = typename GetTypeImpl<ChildType, DatumCoord<TailCoords...>>::type;
         };
 

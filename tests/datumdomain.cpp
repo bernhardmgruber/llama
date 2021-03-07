@@ -279,3 +279,24 @@ TEST_CASE("static array")
     int& e1 = view(ArrayDomain{0})(Tag{})(1_DC);
     int& e2 = view(ArrayDomain{0})(Tag{})(2_DC);
 }
+
+TEST_CASE("dynamic array")
+{
+    using namespace llama::literals;
+
+    struct Tag
+    {
+    };
+    using DatumDomain = llama::DS<llama::DE<Tag, int[]>>;
+
+    using ArrayDomain = llama::ArrayDomain<1>;
+    ArrayDomain arrayDomain{16};
+
+    using Mapping = llama::mapping::SoA<ArrayDomain, DatumDomain>;
+    Mapping mapping{arrayDomain};
+    auto view = allocView(mapping);
+
+    int& e0 = view(ArrayDomain{0})(Tag{})(0);
+    int& e1 = view(ArrayDomain{0})(Tag{})(1);
+    int& e2 = view(ArrayDomain{0})(Tag{})(2);
+}

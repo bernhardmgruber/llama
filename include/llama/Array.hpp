@@ -88,6 +88,16 @@ namespace llama
 
     template <typename First, typename... Args>
     Array(First, Args... args) -> Array<First, sizeof...(Args) + 1>;
+
+    template <typename T, std::size_t N>
+    constexpr auto push(Array<T, N> a, T v) -> Array<T, N + 1>
+    {
+        Array<T, N + 1> r;
+        for (auto i = 0; i < N; i++)
+            r[i] = a[i];
+        r[N] = v;
+        return r;
+    }
 } // namespace llama
 
 namespace std

@@ -306,6 +306,19 @@ namespace llama
         template <typename T, template <typename...> typename Tuple, typename... Args>
         constexpr inline auto
             isDirectListInitializableFromTuple<T, Tuple<Args...>> = isDirectListInitializable<T, Args...>;
+
+        template <typename DatumDomain, typename DatumCoord>
+        constexpr inline auto unboundArraysUntil = []() constexpr
+        {
+            std::size_t count = 0;
+            boost::mp11::mp_for_each<boost::mp11::mp_iota_c<DatumCoord::size>>([&](auto i) constexpr {
+                using DC = DatumCoordFromList<boost::mp11::mp_take_c<typename DatumCoord::List, i>>;
+                using TypeAtDC = GetType<DatumDomain, DC>;
+                count += static_cast<std::size_t>(isDynamicArray<TypeAtDC>);
+            });
+            return count;
+        }
+        ();
     } // namespace internal
 
     /// Virtual data type returned by \ref View after resolving a user domain
@@ -323,9 +336,13 @@ namespace llama
     private:
         using ArrayDomain = typename View::Mapping::ArrayDomain;
         using DatumDomain = typename View::Mapping::DatumDomain;
+        using DynamicArrayExtentsArray
+            = Array<std::size_t, internal::unboundArraysUntil<DatumDomain, BoundDatumDomain>>;
 
-        const ArrayDomain userDomainPos;
+
         std::conditional_t<OwnView, View, View&> view;
+        const ArrayDomain userDomainPos;
+        [[no_unique_address]] const DynamicArrayExtentsArray dynamicArrayExtents;
 
     public:
         /// Subtree of the datum domain of View starting at
@@ -336,15 +353,20 @@ namespace llama
         LLAMA_FN_HOST_ACC_INLINE VirtualDatum()
             /* requires(OwnView) */
             : userDomainPos({})
+            , dynamicArrayExtents({})
             , view{allocViewStack<1, DatumDomain>()}
         {
             static_assert(OwnView, "The default constructor of VirtualDatum is only available if the ");
         }
 
         LLAMA_FN_HOST_ACC_INLINE
-        VirtualDatum(ArrayDomain userDomainPos, std::conditional_t<OwnView, View&&, View&> view)
-            : userDomainPos(userDomainPos)
-            , view{static_cast<decltype(view)>(view)}
+        VirtualDatum(
+            std::conditional_t<OwnView, View&&, View&> view,
+            ArrayDomain userDomainPos,
+            DynamicArrayExtentsArray dynamicArrayExtents = {})
+            : view{static_cast<decltype(view)>(view)}
+            , userDomainPos(userDomainPos)
+            , dynamicArrayExtents(dynamicArrayExtents)
         {
         }
 
@@ -355,36 +377,44 @@ namespace llama
         /// datum using a \ref DatumCoord. If the access resolves to a leaf, a
         /// reference to a variable inside the \ref View storage is returned,
         /// otherwise another virtual datum.
-        template <std::size_t... Coord>
+        template <
+            std::size_t... Coord,
+            typename ADD = AccessibleDatumDomain,
+            std::enable_if_t<!isDynamicArray<ADD>, bool> = true>
         LLAMA_FN_HOST_ACC_INLINE auto operator()(DatumCoord<Coord...> = {}) const -> decltype(auto)
         {
             using AbsolutCoord = Cat<BoundDatumDomain, DatumCoord<Coord...>>;
-            if constexpr (isDatumStruct<GetType<DatumDomain, AbsolutCoord>>)
+            using ResolvedType = GetType<DatumDomain, AbsolutCoord>;
+            if constexpr (isDatumStruct<ResolvedType> || isDynamicArray<ResolvedType>)
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return VirtualDatum<const View, AbsolutCoord>{userDomainPos, this->view};
+                return VirtualDatum<const View, AbsolutCoord>{this->view, userDomainPos, dynamicArrayExtents};
             }
             else
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return this->view.accessor(userDomainPos, AbsolutCoord{});
+                return this->view.accessor(userDomainPos, dynamicArrayExtents, AbsolutCoord{});
             }
         }
 
         // FIXME(bgruber): remove redundancy
-        template <std::size_t... Coord>
-        LLAMA_FN_HOST_ACC_INLINE auto operator()(DatumCoord<Coord...> coord = {}) -> decltype(auto)
+        template <
+            std::size_t... Coord,
+            typename ADD = AccessibleDatumDomain,
+            std::enable_if_t<!isDynamicArray<ADD>, bool> = true>
+        LLAMA_FN_HOST_ACC_INLINE auto operator()(DatumCoord<Coord...> = {}) -> decltype(auto)
         {
             using AbsolutCoord = Cat<BoundDatumDomain, DatumCoord<Coord...>>;
-            if constexpr (isDatumStruct<GetType<DatumDomain, AbsolutCoord>>)
+            using ResolvedType = GetType<DatumDomain, AbsolutCoord>;
+            if constexpr (isDatumStruct<ResolvedType> || isDynamicArray<ResolvedType>)
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return VirtualDatum<View, AbsolutCoord>{userDomainPos, this->view};
+                return VirtualDatum<View, AbsolutCoord>{this->view, userDomainPos, dynamicArrayExtents};
             }
             else
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return this->view.accessor(userDomainPos, AbsolutCoord{});
+                return this->view.accessor(userDomainPos, dynamicArrayExtents, AbsolutCoord{});
             }
         }
 
@@ -392,7 +422,10 @@ namespace llama
         /// datum using a series of tags. If the access resolves to a leaf, a
         /// reference to a variable inside the \ref View storage is returned,
         /// otherwise another virtual datum.
-        template <typename... Tags>
+        template <
+            typename... Tags,
+            typename ADD = AccessibleDatumDomain,
+            std::enable_if_t<!isDynamicArray<ADD>, bool> = true>
         LLAMA_FN_HOST_ACC_INLINE auto operator()(Tags...) const -> decltype(auto)
         {
             using DatumCoord = GetCoordFromTagsRelative<DatumDomain, BoundDatumDomain, Tags...>;
@@ -402,13 +435,51 @@ namespace llama
         }
 
         // FIXME(bgruber): remove redundancy
-        template <typename... Tags>
+        template <
+            typename... Tags,
+            typename ADD = AccessibleDatumDomain,
+            std::enable_if_t<!isDynamicArray<ADD>, bool> = true>
         LLAMA_FN_HOST_ACC_INLINE auto operator()(Tags...) -> decltype(auto)
         {
             using DatumCoord = GetCoordFromTagsRelative<DatumDomain, BoundDatumDomain, Tags...>;
 
             LLAMA_FORCE_INLINE_RECURSIVE
             return operator()(DatumCoord{});
+        }
+
+        template <typename ADD = AccessibleDatumDomain, std::enable_if_t<isDynamicArray<ADD>, bool> = true>
+        LLAMA_FN_HOST_ACC_INLINE auto operator()(std::size_t i) const -> decltype(auto)
+        {
+            using AbsolutCoord = Cat<BoundDatumDomain, DatumCoord<dynamic>>;
+            using ResolvedType = GetType<DatumDomain, AbsolutCoord>;
+            if constexpr (isDatumStruct<ResolvedType> || isDynamicArray<ResolvedType>)
+            {
+                LLAMA_FORCE_INLINE_RECURSIVE
+                return VirtualDatum<const View, AbsolutCoord>{this->view, userDomainPos, push(dynamicArrayExtents, i)};
+            }
+            else
+            {
+                LLAMA_FORCE_INLINE_RECURSIVE
+                return this->view.accessor(userDomainPos, dynamicArrayExtents, AbsolutCoord{});
+            }
+        }
+
+        // FIXME(bgruber): remove redundancy
+        template <typename ADD = AccessibleDatumDomain, std::enable_if_t<isDynamicArray<ADD>, bool> = true>
+        LLAMA_FN_HOST_ACC_INLINE auto operator()(std::size_t i) -> decltype(auto)
+        {
+            using AbsolutCoord = Cat<BoundDatumDomain, DatumCoord<dynamic>>;
+            using ResolvedType = GetType<DatumDomain, AbsolutCoord>;
+            if constexpr (isDatumStruct<ResolvedType> || isDynamicArray<ResolvedType>)
+            {
+                LLAMA_FORCE_INLINE_RECURSIVE
+                return VirtualDatum<View, AbsolutCoord>{this->view, userDomainPos, push(dynamicArrayExtents, i)};
+            }
+            else
+            {
+                LLAMA_FORCE_INLINE_RECURSIVE
+                return this->view.accessor(userDomainPos, dynamicArrayExtents, AbsolutCoord{});
+            }
         }
 
         // we need this one to disable the compiler generated copy assignment
@@ -604,7 +675,8 @@ namespace llama
         {
             static_assert(
                 internal::isDirectListInitializableFromTuple<TupleLike, decltype(asFlatTuple())>,
-                "TupleLike must be constructible from as many values as this VirtualDatum recursively represents like "
+                "TupleLike must be constructible from as many values as this VirtualDatum recursively represents "
+                "like "
                 "this: TupleLike{values...}");
             return internal::makeFromTuple<TupleLike>(
                 asFlatTuple(),
@@ -616,7 +688,8 @@ namespace llama
         {
             static_assert(
                 internal::isDirectListInitializableFromTuple<TupleLike, decltype(asFlatTuple())>,
-                "TupleLike must be constructible from as many values as this VirtualDatum recursively represents like "
+                "TupleLike must be constructible from as many values as this VirtualDatum recursively represents "
+                "like "
                 "this: TupleLike{values...}");
             return internal::makeFromTuple<TupleLike>(
                 asFlatTuple(),
@@ -719,12 +792,12 @@ namespace llama
             if constexpr (isDatumStruct<DatumDomain>)
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return VirtualDatumTypeConst{arrayDomain, *this};
+                return VirtualDatumTypeConst{*this, arrayDomain};
             }
             else
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return accessor(arrayDomain, DatumCoord<>{});
+                return accessor(arrayDomain, Array<size_t, 0>{}, DatumCoord<>{});
             }
         }
 
@@ -733,12 +806,12 @@ namespace llama
             if constexpr (isDatumStruct<DatumDomain>)
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return VirtualDatumType{arrayDomain, *this};
+                return VirtualDatumType{*this, arrayDomain};
             }
             else
             {
                 LLAMA_FORCE_INLINE_RECURSIVE
-                return accessor(arrayDomain, DatumCoord<>{});
+                return accessor(arrayDomain, Array<size_t, 0>{}, DatumCoord<>{});
             }
         }
 
@@ -793,18 +866,24 @@ namespace llama
         template <typename T_View, typename T_BoundDatumDomain, bool OwnView>
         friend struct VirtualDatum;
 
-        template <std::size_t... Coords>
-        LLAMA_FN_HOST_ACC_INLINE auto accessor(ArrayDomain arrayDomain, DatumCoord<Coords...> = {}) const -> const auto&
+        template <std::size_t N, std::size_t... Coords>
+        LLAMA_FN_HOST_ACC_INLINE auto accessor(
+            ArrayDomain arrayDomain,
+            Array<size_t, N> dynamicArrayExtents,
+            DatumCoord<Coords...> = {}) const -> const auto&
         {
-            const auto [nr, offset] = mapping.template getBlobNrAndOffset<Coords...>(arrayDomain);
+            const auto [nr, offset] = mapping.template getBlobNrAndOffset<Coords...>(arrayDomain, dynamicArrayExtents);
             using Type = GetType<DatumDomain, DatumCoord<Coords...>>;
             return reinterpret_cast<const Type&>(storageBlobs[nr][offset]);
         }
 
-        template <std::size_t... Coords>
-        LLAMA_FN_HOST_ACC_INLINE auto accessor(ArrayDomain arrayDomain, DatumCoord<Coords...> coord = {}) -> auto&
+        template <std::size_t N, std::size_t... Coords>
+        LLAMA_FN_HOST_ACC_INLINE auto accessor(
+            ArrayDomain arrayDomain,
+            Array<size_t, N> dynamicArrayExtents,
+            DatumCoord<Coords...> coord = {}) -> auto&
         {
-            const auto [nr, offset] = mapping.template getBlobNrAndOffset<Coords...>(arrayDomain);
+            const auto [nr, offset] = mapping.template getBlobNrAndOffset<Coords...>(arrayDomain, dynamicArrayExtents);
             using Type = GetType<DatumDomain, DatumCoord<Coords...>>;
             return reinterpret_cast<Type&>(storageBlobs[nr][offset]);
         }

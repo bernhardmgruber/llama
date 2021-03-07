@@ -30,8 +30,9 @@ namespace llama::mapping
             return sizeOf<DatumDomain>;
         }
 
-        template <std::size_t... DatumDomainCoord>
-        LLAMA_FN_HOST_ACC_INLINE constexpr auto getBlobNrAndOffset(ArrayDomain) const -> NrAndOffset
+        template <std::size_t... DatumDomainCoord, std::size_t N = 0>
+        LLAMA_FN_HOST_ACC_INLINE constexpr auto getBlobNrAndOffset(ArrayDomain, Array<std::size_t, N> = {}) const
+            -> NrAndOffset
         {
             constexpr auto offset = offsetOf<DatumDomain, DatumCoord<DatumDomainCoord...>>;
             return {0, offset};

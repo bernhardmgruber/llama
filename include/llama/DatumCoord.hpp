@@ -9,6 +9,8 @@
 
 namespace llama
 {
+    inline constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+
     /// Represents a coordinate for an element inside the datum domain tree.
     /// \tparam Coords... the compile time coordinate.
     template <std::size_t... Coords>

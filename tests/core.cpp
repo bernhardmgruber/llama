@@ -340,3 +340,32 @@ TEST_CASE("arrays")
     v(0u)(tag::A3{}, 1_DC, 0_DC);
     v(0u)(tag::A3{}, 1_DC, 1_DC);
 }
+
+TEST_CASE("unboundArrays")
+{
+    using Int0 = int;
+    using Int1 = llama::DynamicArray<int>;
+    using Int2 = llama::DynamicArray<llama::DynamicArray<int>>;
+    using Int3 = llama::DynamicArray<llama::DynamicArray<llama::DynamicArray<int>>>;
+
+    using llama::internal::unboundArraysUntil;
+    STATIC_REQUIRE(unboundArraysUntil<Int0, llama::DatumCoord<>> == 0);
+    STATIC_REQUIRE(unboundArraysUntil<Int1, llama::DatumCoord<>> == 0);
+    STATIC_REQUIRE(unboundArraysUntil<Int1, llama::DatumCoord<llama::dynamic>> == 1);
+    STATIC_REQUIRE(unboundArraysUntil<Int2, llama::DatumCoord<>> == 0);
+    STATIC_REQUIRE(unboundArraysUntil<Int2, llama::DatumCoord<llama::dynamic>> == 1);
+    STATIC_REQUIRE(unboundArraysUntil<Int2, llama::DatumCoord<llama::dynamic, llama::dynamic>> == 2);
+    STATIC_REQUIRE(unboundArraysUntil<Int3, llama::DatumCoord<>> == 0);
+    STATIC_REQUIRE(unboundArraysUntil<Int3, llama::DatumCoord<llama::dynamic>> == 1);
+    STATIC_REQUIRE(unboundArraysUntil<Int3, llama::DatumCoord<llama::dynamic, llama::dynamic>> == 2);
+    STATIC_REQUIRE(unboundArraysUntil<Int3, llama::DatumCoord<llama::dynamic, llama::dynamic, llama::dynamic>> == 3);
+
+    struct Tag
+    {
+    };
+    using DatumDomain = llama::DS<llama::DE<Tag, int[]>>;
+
+    STATIC_REQUIRE(unboundArraysUntil<DatumDomain, llama::DatumCoord<>> == 0);
+    STATIC_REQUIRE(unboundArraysUntil<DatumDomain, llama::DatumCoord<0>> == 0);
+    STATIC_REQUIRE(unboundArraysUntil<DatumDomain, llama::DatumCoord<0, llama::dynamic>> == 1);
+}

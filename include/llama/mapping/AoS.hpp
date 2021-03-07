@@ -35,8 +35,10 @@ namespace llama::mapping
             return LinearizeArrayDomainFunctor{}.size(arrayDomainSize) * sizeOf<DatumDomain, AlignAndPad>;
         }
 
-        template <std::size_t... DatumDomainCoord>
-        LLAMA_FN_HOST_ACC_INLINE constexpr auto getBlobNrAndOffset(ArrayDomain coord) const -> NrAndOffset
+        template <std::size_t... DatumDomainCoord, std::size_t N = 0>
+        LLAMA_FN_HOST_ACC_INLINE constexpr auto getBlobNrAndOffset(
+            ArrayDomain coord,
+            Array<std::size_t, N> dynamicArrayExtents = {}) const -> NrAndOffset
         {
             LLAMA_FORCE_INLINE_RECURSIVE
             const auto offset = LinearizeArrayDomainFunctor{}(coord, arrayDomainSize)
