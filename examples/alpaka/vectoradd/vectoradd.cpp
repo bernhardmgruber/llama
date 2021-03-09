@@ -87,7 +87,7 @@ int main(int argc, char** argv)
         if constexpr (MAPPING == 1)
             return llama::mapping::SoA{arrayDomain, Vector{}};
         if constexpr (MAPPING == 2)
-            return llama::mapping::SoA{arrayDomain, Vector{}, std::true_type{}};
+            return llama::mapping::SoA<decltype(arrayDomain), Vector, true>{arrayDomain};
         if constexpr (MAPPING == 3)
             return llama::mapping::tree::Mapping{arrayDomain, llama::Tuple{}, Vector{}};
         if constexpr (MAPPING == 4)
