@@ -20,7 +20,7 @@ constexpr auto ALLOW_RSQRT = true; // rsqrt can be way faster, but less accurate
 
 #if defined(ALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLED) || defined(ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED)
 #    if defined(ALPAKA_ACC_GPU_CUDA_ENABLED)
-#        error Cannot enable CUDA together with other backends, sorry :/
+#        error Cannot enable CUDA together with other backends, because nvcc cannot parse the Vc header, sorry :/
 #    endif
 // nvcc fails to compile Vc headers even if nothing is used from there, so we need to conditionally include it
 #    include <Vc/Vc>
