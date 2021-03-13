@@ -126,6 +126,42 @@ jobs:
     - name: run tests
       run: build/tests
 
+  build-ubuntu-icpc:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: install icc
+      run: |
+        wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+        sudo apt-key add GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+        sudo add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"
+        sudo apt update
+        sudo apt install intel-oneapi-compiler-dpcpp-cpp-and-cpp-classic
+    - name: install boost
+      run: |
+        sudo apt update
+        sudo apt install libboost-all-dev
+    - name: vcpkg install dependencies
+      run: |
+        vcpkg install catch2 fmt vc
+    - name: install alpaka
+      run: |
+        git clone https://github.com/alpaka-group/alpaka.git
+        mkdir alpaka/build
+        cd alpaka/build
+        cmake .. -DCMAKE_TOOLCHAIN_FILE=/usr/local/share/vcpkg/scripts/buildsystems/vcpkg.cmake
+        sudo cmake --build . --target install
+    - name: cmake
+      run: |
+        mkdir build
+        cd build
+        source /opt/intel/oneapi/setvars.sh
+        CXX=icpc cmake .. -DCMAKE_BUILD_TYPE=$CONFIG -DALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLE=ON -DCMAKE_TOOLCHAIN_FILE=/usr/local/share/vcpkg/scripts/buildsystems/vcpkg.cmake
+    - name: build tests + examples
+      run: cmake --build build -j $THREADS
+    - name: run tests
+      run: build/tests
+
   build-windows:
     runs-on: windows-latest
     env:
