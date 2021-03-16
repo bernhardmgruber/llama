@@ -703,10 +703,11 @@ namespace llama
         using VirtualDatumType = VirtualDatum<View<Mapping, BlobType>>;
         using VirtualDatumTypeConst = VirtualDatum<const View<Mapping, BlobType>>;
 
-        View() = default;
+        constexpr View() = default;
+        constexpr ~View() = default;
 
         LLAMA_FN_HOST_ACC_INLINE
-        View(Mapping mapping, Array<BlobType, Mapping::blobCount> storageBlobs)
+        constexpr View(Mapping mapping, Array<BlobType, Mapping::blobCount> storageBlobs)
             : mapping(std::move(mapping))
             , storageBlobs(std::move(storageBlobs))
         {
